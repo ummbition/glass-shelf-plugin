@@ -1,0 +1,11 @@
+{
+  "id": "glass-shelf",
+  "name": "Glass Shelf",
+  "version": "0.1.369",
+  "minAppVersion": "1.9.0",
+  "description": "UI layout for the Glass Shelf theme: sidebar more-options menus, back/forward and reading-mode buttons in the tab bar, and in-tab menu buttons. Works only while the Glass Shelf theme is active.",
+  "author": "Umm",
+  "authorUrl": "https://github.com/ummbition",
+  "fundingUrl": "https://ko-fi.com/ummbition",
+  "isDesktopOnly": false
+}

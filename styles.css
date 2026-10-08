@@ -1,0 +1,630 @@
+/* Glass Shelf 플러그인: 배치·애니메이션·굴절 담당. 기본 모양은 Glass Shelf 테마가 입힌다 */
+
+.lg-hidden {
+  display: none !important;
+}
+
+.lg-svg-defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* 뒤로·앞으로는 탭 바로 옮겼다 */
+.lg-ui .view-header-nav-buttons {
+  display: none;
+}
+
+/* 사이드바 버튼 줄은 ··· 메뉴로 옮겼다 */
+.lg-ui .mod-left-split .nav-header .nav-buttons-container,
+.lg-ui .mod-right-split .nav-header .nav-buttons-container {
+  display: none;
+}
+
+/* ··· 메뉴에서 버튼을 대신 눌러 하위 메뉴(정렬 등)가 떠 있는 동안: Obsidian 메뉴는 부모 버튼이 화면에 없으면 닫히므로
+   버튼 줄을 보이지 않게, 자리 차지 없이 화면에 둔다 (플러그인이 그동안 .lg-nav-proxy 를 붙인다) */
+.lg-ui .workspace-leaf-content > .nav-header.lg-nav-proxy {
+  display: block !important;
+  position: absolute;
+  height: 0;
+  overflow: visible;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.lg-ui .nav-header.lg-nav-proxy .nav-buttons-container {
+  display: flex !important;
+}
+
+/* 버튼 줄 말고 보이는 게 없으면 헤더째 숨긴다. 판정은 플러그인(markBareHeads)이 보기에 lg-bare-head 로 붙인다.
+   :has(… [style*="display: none"]) 로 직접 판정하면 어떤 요소든 인라인 스타일이 바뀔 때마다 다시 판정해,
+   파일·개요 항목을 끄는 동안 끌기 표시가 움직일 때마다 스타일 재계산이 약 3ms 늘어 렉이 걸렸다 (측정 확인) */
+.lg-ui .mod-left-split .workspace-leaf-content.lg-bare-head > .nav-header,
+.lg-ui .mod-right-split .workspace-leaf-content.lg-bare-head > .nav-header {
+  display: none;
+}
+
+/* ---------- 넓게 모드의 버튼 줄 (실행 버튼 알약) ---------- */
+.lg-nav-run {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+}
+
+/* ---------- 사이드바 ··· ---------- */
+.lg-nav-more {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* 메뉴에 넣을 게 없는 탭에서는 ··· 이 사라진다. 버튼 크기는 그대로 두고 차지하는 자리만
+   (바깥 여백을 음수로) 서서히 거둬들여 탭 알약 폭이 따라 변한다. 버튼은 가운데로 줄어들고 가운데서 퍼져 나온다.
+   자리를 거둬들이는 동안 버튼이 오른쪽으로 밀리는 만큼 translate 로 되돌려 제자리에 둔다 */
+.lg-ui .lg-nav-more {
+  --lg-more-out: calc((var(--lg-btn) + var(--lg-gap)) * -1);
+  min-width: 0;
+  transform-origin: 50% 50%;
+  transition:
+    margin 240ms var(--lg-ease-move),
+    translate 240ms var(--lg-ease-move),
+    opacity 160ms ease,
+    transform 300ms var(--lg-ease-pop);
+}
+
+.lg-ui .workspace-tab-header-container .lg-nav-more.lg-nav-more-off:not(#lg) {
+  margin-inline-end: var(--lg-more-out);
+  translate: var(--lg-more-out) 0;
+  opacity: 0;
+  transform: scale(0);
+  pointer-events: none;
+  transition:
+    margin 240ms var(--lg-ease-move),
+    translate 240ms var(--lg-ease-move),
+    opacity 140ms ease 60ms,
+    transform 200ms var(--lg-ease-exit);
+}
+
+/* 오른쪽 패널: [닫기] [탭] ··· [···]. 닫기가 가장자리 쪽이라 열고 닫을 때 자리가 이어진다 (간격은 테마) */
+.lg-panel-toggle {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* 패널이 열려 있으면 탭 바의 원래 토글은 숨긴다 (리본 맨 위 토글은 아래에서 따로).
+   데스크톱만: 모바일 서랍에는 패널 안 닫기 버튼이 없고, 태블릿은 서랍이 편집창 위에 떠서 토글이 사라지면
+   탭 줄 가운데 맞춤이 어긋나 탭이 서랍 쪽으로 밀린다 */
+body.lg-ui:not(.is-mobile) .workspace.is-right-sidedock-open .workspace-tab-header-container .sidebar-toggle-button.mod-right,
+body.lg-ui:not(.is-mobile) .workspace.is-left-sidedock-open .workspace-tab-header-container .sidebar-toggle-button.mod-left {
+  display: none;
+}
+
+/* ---------- 리본 숨김 (데스크톱): 리본 버튼은 편집창 탭 줄 맨 왼쪽 리본 메뉴(.lg-rib-menu)로,
+   리본 맨 위의 왼쪽 패널 열기 토글은 리본이 숨으면 Obsidian 이 편집창 탭 줄 맨 왼쪽으로 옮긴다 (사용자 요청).
+   아래 리본 애니메이션은 리본을 다시 보일 때를 위해 남긴다 ---------- */
+body.lg-ui:not(.is-mobile) {
+  --ribbon-width: 0px;
+}
+
+body.lg-ui:not(.is-mobile) .workspace-ribbon:is(.mod-left, .mod-primary) {
+  display: none;
+}
+
+/* 태블릿: 리본은 왼쪽 서랍 안에 있다. 버튼은 모두 편집창 탭 줄의 리본 메뉴로 모았으니(아래쪽 보관함·설정 버튼 포함) 리본을 통째로 숨긴다 */
+body.lg-ui.is-tablet .workspace-drawer-ribbon {
+  display: none;
+}
+
+/* 리본 자리 비우기: Obsidian 은 왼쪽 서랍 안쪽 칸에 리본 폭(--ribbon-width)만큼 여백을 둬서, 리본을 숨겨도 빈칸이 남았다 */
+body.lg-ui.is-tablet,
+body.lg-ui.is-tablet .workspace-drawer {
+  --ribbon-width: 0px;
+}
+
+.lg-rib-menu {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* ---------- 리본: 왼쪽 패널 여닫기에 맞춰 토글과 리본 알약이 합쳐지고 나뉜다 ----------
+   - 닫힘: 맨 위 토글(원) 아래에 리본 알약. 열림: 토글이 빠지고 리본 알약이 토글 자리(다른 버튼 높이)까지 올라간다.
+   - 리본 상자·배경은 움직이지 않고 알약만 옮긴다 (--lg-rib-up = 토글 한 칸 + 간격)
+   - 닫힐 때: 알약 유리가 위 끝은 그대로 둔 채 아래로 길어지며 내용만 내려가는 동안 비운 윗자리에 토글 기호가 나타나고,
+     다 길어지기 전부터 알약 위 끝이 내려와 토글 원과 알약으로 나뉜다(세 단계가 겹친다). 열릴 때는 그 반대
+   - 여닫는 순간 플러그인이 잠깐 붙이는 body.lg-rib-anim 아래에서만 애니메이션한다 (첫 화면·평소엔 돌지 않게) */
+.lg-ui {
+  --lg-rib-up: calc((var(--lg-btn) + var(--lg-gap)) * -1);
+}
+
+.lg-ui .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .side-dock-actions {
+  translate: 0 var(--lg-rib-up);
+}
+
+.lg-ui .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* 닫힐 때 (합쳐진 채 내려와 나뉜다) */
+.lg-ui.lg-rib-anim .workspace:not(.is-left-sidedock-open) .workspace-ribbon:is(.mod-left, .mod-primary) .side-dock-actions {
+  animation: lg-rib-down 480ms linear both;
+}
+
+.lg-ui.lg-rib-anim .workspace:not(.is-left-sidedock-open) .workspace-ribbon:is(.mod-left, .mod-primary) .side-dock-actions::after {
+  animation: lg-rib-down-glass 480ms linear both;
+}
+
+.lg-ui.lg-rib-anim .workspace:not(.is-left-sidedock-open) .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon > svg {
+  animation: lg-rib-tgl-icon-in 480ms both;
+}
+
+.lg-ui.lg-rib-anim .workspace:not(.is-left-sidedock-open) .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon::after {
+  animation: lg-rib-tgl-glass-in 480ms both;
+}
+
+/* 열릴 때 (토글이 알약에 합쳐진 뒤 알약이 올라간다) */
+.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .side-dock-actions {
+  animation: lg-rib-up 480ms linear both;
+}
+
+.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon {
+  opacity: 1;
+}
+
+.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon > svg {
+  animation: lg-rib-tgl-icon-out 480ms linear both;
+}
+
+.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon::after {
+  animation: lg-rib-tgl-glass-out 480ms linear both;
+}
+
+/* 알약 내용(닫힐 때): 위에서 내려와 제자리를 살짝 지났다가 돌아온다 */
+@keyframes lg-rib-down {
+  0% { translate: 0 calc(var(--lg-rib-up) * 1); scale: 1 1; }
+  4% { translate: 0 calc(var(--lg-rib-up) * 0.9985); scale: 0.998 1.0026; }
+  8% { translate: 0 calc(var(--lg-rib-up) * 0.9877); scale: 0.9936 1.0085; }
+  12% { translate: 0 calc(var(--lg-rib-up) * 0.9585); scale: 0.9862 1.0184; }
+  16% { translate: 0 calc(var(--lg-rib-up) * 0.9015); scale: 0.9759 1.0322; }
+  20% { translate: 0 calc(var(--lg-rib-up) * 0.8077); scale: 0.9626 1.0499; }
+  24% { translate: 0 calc(var(--lg-rib-up) * 0.6676); scale: 0.9465 1.0713; }
+  28% { translate: 0 calc(var(--lg-rib-up) * 0.4732); scale: 0.94 1.08; }
+  32% { translate: 0 calc(var(--lg-rib-up) * 0.2925); scale: 0.9507 1.0658; }
+  36% { translate: 0 calc(var(--lg-rib-up) * 0.1649); scale: 0.9668 1.0443; }
+  /* 제자리를 지나 살짝(한 칸의 8%, 약 3.5px) 더 내려갔다가 돌아온다 (사용자 요청) */
+  40% { translate: 0 calc(var(--lg-rib-up) * 0.085); scale: 0.9776 1.0298; }
+  44% { translate: 0 calc(var(--lg-rib-up) * 0.025); scale: 0.9832 1.0224; }
+  48% { translate: 0 calc(var(--lg-rib-up) * -0.02); scale: 0.988 1.016; }
+  52% { translate: 0 calc(var(--lg-rib-up) * -0.05); scale: 0.992 1.0107; }
+  56% { translate: 0 calc(var(--lg-rib-up) * -0.07); scale: 0.9952 1.0064; }
+  60% { translate: 0 calc(var(--lg-rib-up) * -0.08); scale: 0.9987 1.0017; }
+  64% { translate: 0 calc(var(--lg-rib-up) * -0.078); scale: 0.9981 1.0026; }
+  68% { translate: 0 calc(var(--lg-rib-up) * -0.068); scale: 0.9962 1.0051; }
+  72% { translate: 0 calc(var(--lg-rib-up) * -0.054); scale: 0.9955 1.006; }
+  76% { translate: 0 calc(var(--lg-rib-up) * -0.04); scale: 0.9957 1.0058; }
+  80% { translate: 0 calc(var(--lg-rib-up) * -0.027); scale: 0.9962 1.0051; }
+  84% { translate: 0 calc(var(--lg-rib-up) * -0.016); scale: 0.997 1.0041; }
+  88% { translate: 0 calc(var(--lg-rib-up) * -0.008); scale: 0.9979 1.0028; }
+  92% { translate: 0 calc(var(--lg-rib-up) * -0.003); scale: 0.9989 1.0015; }
+  96% { translate: 0 calc(var(--lg-rib-up) * -0.001); scale: 0.9995 1.0006; }
+  100% { translate: 0 calc(var(--lg-rib-up) * 0); scale: 1 1; }
+}
+
+/* 알약 유리(닫힐 때): 위 끝은 열림 자리에 둔 채 길어지다가, 내용이 다 내려오기 전(30%)부터 위 끝이 내려와 토글과 나뉜다 */
+@keyframes lg-rib-down-glass {
+  0% { top: calc(var(--lg-rib-up) * 0); }
+  4% { top: calc(var(--lg-rib-up) * 0.0015); }
+  8% { top: calc(var(--lg-rib-up) * 0.0123); }
+  12% { top: calc(var(--lg-rib-up) * 0.0415); }
+  16% { top: calc(var(--lg-rib-up) * 0.0985); }
+  20% { top: calc(var(--lg-rib-up) * 0.1923); }
+  24% { top: calc(var(--lg-rib-up) * 0.3324); }
+  28% { top: calc(var(--lg-rib-up) * 0.5268); }
+  32% { top: calc(var(--lg-rib-up) * 0.5999); }
+  36% { top: calc(var(--lg-rib-up) * 0.5349); }
+  40% { top: calc(var(--lg-rib-up) * 0.4541); }
+  44% { top: calc(var(--lg-rib-up) * 0.3648); }
+  48% { top: calc(var(--lg-rib-up) * 0.274); }
+  52% { top: calc(var(--lg-rib-up) * 0.1888); }
+  56% { top: calc(var(--lg-rib-up) * 0.1163); }
+  60% { top: calc(var(--lg-rib-up) * 0.0606); }
+  64% { top: calc(var(--lg-rib-up) * 0.0204); }
+  68% { top: calc(var(--lg-rib-up) * -0.0066); }
+  72% { top: calc(var(--lg-rib-up) * -0.0224); }
+  76% { top: calc(var(--lg-rib-up) * -0.0292); }
+  80% { top: calc(var(--lg-rib-up) * -0.0292); }
+  84% { top: calc(var(--lg-rib-up) * -0.0243); }
+  88% { top: calc(var(--lg-rib-up) * -0.0169); }
+  92% { top: calc(var(--lg-rib-up) * -0.0089); }
+  96% { top: calc(var(--lg-rib-up) * -0.0026); }
+  100% { top: calc(var(--lg-rib-up) * 0); }
+}
+
+@keyframes lg-rib-tgl-icon-in {
+  0%, 12% { opacity: 0; }
+  40%, 100% { opacity: 1; }
+}
+
+@keyframes lg-rib-tgl-glass-in {
+  0%, 44% { opacity: 0; }
+  54%, 100% { opacity: 1; }
+}
+
+/* 열릴 때: 리본 알약이 통째로 토글 자리까지 올라가고, 토글은 그동안 흐려진다 (토글이 다 사라지기 전부터 같이 움직인다).
+   천천히 출발해 빨라졌다가 천천히 멈춘다(관성 없음).
+   열 때·닫을 때 모두 움직이는 동안 속도에 비례해 세로로 늘고 가로로 눌린다(찌부, scale 이라 곡률도 같이 변한다, 사용자 요청). 닫힐 때 최대 세로 +8%·가로 -6%, 올라갈 때는 점잖게(+2.5%·-2%) */
+@keyframes lg-rib-up {
+  0% { translate: 0 calc(var(--lg-rib-up) * 0); scale: 1 1; }
+  4% { translate: 0 calc(var(--lg-rib-up) * 0.0003); scale: 0.9998 1.0002; }
+  8% { translate: 0 calc(var(--lg-rib-up) * 0.002); scale: 0.9994 1.0008; }
+  12% { translate: 0 calc(var(--lg-rib-up) * 0.0069); scale: 0.9987 1.0017; }
+  16% { translate: 0 calc(var(--lg-rib-up) * 0.0164); scale: 0.9977 1.0029; }
+  20% { translate: 0 calc(var(--lg-rib-up) * 0.032); scale: 0.9964 1.0045; }
+  24% { translate: 0 calc(var(--lg-rib-up) * 0.0553); scale: 0.9949 1.0064; }
+  28% { translate: 0 calc(var(--lg-rib-up) * 0.0878); scale: 0.993 1.0087; }
+  32% { translate: 0 calc(var(--lg-rib-up) * 0.1311); scale: 0.9909 1.0114; }
+  36% { translate: 0 calc(var(--lg-rib-up) * 0.1866); scale: 0.9885 1.0144; }
+  40% { translate: 0 calc(var(--lg-rib-up) * 0.256); scale: 0.9858 1.0178; }
+  44% { translate: 0 calc(var(--lg-rib-up) * 0.3407); scale: 0.9828 1.0215; }
+  48% { translate: 0 calc(var(--lg-rib-up) * 0.4424); scale: 0.98 1.025; }
+  52% { translate: 0 calc(var(--lg-rib-up) * 0.5576); scale: 0.98 1.025; }
+  56% { translate: 0 calc(var(--lg-rib-up) * 0.6593); scale: 0.9828 1.0215; }
+  60% { translate: 0 calc(var(--lg-rib-up) * 0.744); scale: 0.9858 1.0178; }
+  64% { translate: 0 calc(var(--lg-rib-up) * 0.8134); scale: 0.9885 1.0144; }
+  68% { translate: 0 calc(var(--lg-rib-up) * 0.8689); scale: 0.9909 1.0114; }
+  72% { translate: 0 calc(var(--lg-rib-up) * 0.9122); scale: 0.993 1.0087; }
+  76% { translate: 0 calc(var(--lg-rib-up) * 0.9447); scale: 0.9949 1.0064; }
+  80% { translate: 0 calc(var(--lg-rib-up) * 0.968); scale: 0.9964 1.0045; }
+  84% { translate: 0 calc(var(--lg-rib-up) * 0.9836); scale: 0.9977 1.0029; }
+  88% { translate: 0 calc(var(--lg-rib-up) * 0.9931); scale: 0.9987 1.0017; }
+  92% { translate: 0 calc(var(--lg-rib-up) * 0.998); scale: 0.9994 1.0008; }
+  96% { translate: 0 calc(var(--lg-rib-up) * 0.9997); scale: 0.9998 1.0002; }
+  100% { translate: 0 calc(var(--lg-rib-up) * 1); scale: 1 1; }
+}
+
+
+@keyframes lg-rib-tgl-icon-out {
+  0% { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+
+@keyframes lg-rib-tgl-glass-out {
+  0% { opacity: 1; }
+  55%, 100% { opacity: 0; }
+}
+
+/* ---------- 탭 바 ---------- */
+.lg-tab-nav {
+  display: flex;
+  flex: 0 0 auto;
+  align-self: center;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.lg-tab-nav .clickable-icon.is-disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.lg-tab-mode {
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+/* 닫기(X)는 탭 맨 왼쪽, 메뉴(≡)는 오른쪽 끝 */
+.lg-ui .mod-root .workspace-tab-header-inner-close-button {
+  order: -1;
+  position: static;
+}
+
+.lg-tab-menu {
+  display: none;
+  flex: 0 0 auto;
+  padding: 3px;
+  --icon-size: var(--icon-s);
+  --icon-stroke: var(--icon-s-stroke-width);
+}
+
+.mod-root .workspace-tab-header.is-active .lg-tab-menu {
+  display: flex;
+}
+
+/* 스크롤바 표시·숨김은 테마가 맡는다 (설정 창에도 적용되도록) */
+
+/* ---------- 사이드바 탭 선택 렌즈 ----------
+   플랫 층(회색 선택)과 렌즈 층(통통한 유리)을 겹쳐 두고,
+   스크립트가 --lg-g(0 = 플랫, 1 = 렌즈)로 둘을 섞는다 */
+.lg-seg-indicator {
+  --lg-g: 0;
+}
+
+.lg-seg-flat,
+.lg-seg-lens {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit; /* 끌려 늘어날 때 렌즈 틀(.lg-seg-indicator)의 모양을 따른다 */
+  corner-shape: inherit;
+}
+
+.lg-seg-flat {
+  background-color: rgb(var(--lg-ink, 0 0 0) / var(--lg-select-a, 0.07));
+  opacity: calc(1 - var(--lg-g));
+}
+
+/* 렌즈 층: 채움 없이 완전히 투명한 유리. 테두리·그림자는 다른 유리 버튼과 같은 토큰, 뒤 배경은 굴절만.
+   색조(--lg-tone)는 걸지 않는다: 걸면 뒤 기호가 바탕색으로 옅어져 뿌연 알약처럼 보이고 굴절도 안 보인다 (사용자 지적) */
+.lg-seg-lens {
+  opacity: var(--lg-g);
+  background: transparent;
+  /* 틴트는 받지 않는다: 원래 테두리 (사용자 요청) */
+  box-shadow: var(--lg-rim-out-plain, var(--lg-rim-out)), var(--lg-rim-in-plain, var(--lg-rim-in)), var(--lg-shadow);
+  -webkit-backdrop-filter: var(--lg-refract,) var(--lg-bright,);
+  backdrop-filter: var(--lg-refract,) var(--lg-bright,);
+}
+
+
+/* 그래프 설정창이 열리는 동안 토글을 반올림 없이 그리는 장치 (플러그인이 붙였다가 완전히 멈춘 뒤 뗀다).
+   변환(translate)이 걸린 상자는 픽셀에 맞춰 반올림되지 않아 트랙과 손잡이가 함께 매끄럽게 움직인다.
+   떼면 트랙이 픽셀에 맞춰 다시 그려진다 (전엔 트랙이 반 픽셀 위로 그려진 채 남았다) */
+.checkbox-container.lg-tg-float:not(#lg) {
+  translate: 0 0.01px;
+}
+
+
+
+/* ---------- 플러그인 설정 화면 ---------- */
+/* 묶음 제목: 위에 여백을 두어 묶음끼리 나눈다 */
+.lg-settings .setting-item.lg-settings-group {
+  margin-top: 28px;
+}
+
+/* 하위 항목(위 설정을 켜거나 고르면 생기는 것): 왼쪽으로 들이고 옅은 세로 선으로 위 설정에 묶는다 */
+.lg-settings .setting-item.lg-settings-sub {
+  margin-inline-start: 20px;
+  padding-inline-start: 14px;
+  box-shadow: inset 2px 0 0 var(--background-modifier-border);
+}
+
+/* 정렬 등 버튼 메뉴를 하위 메뉴로 옮겨 올 때, 원래 메뉴를 잠깐 보이지 않게 연다 (플러그인이 .lg-menu-snap 을 붙였다 뗀다) */
+body.lg-menu-snap .menu:not(.lg-menu-ghost) {
+  visibility: hidden !important;
+  animation: none !important;
+}
+
+/* ---------- 폴더 색 (플러그인이 색 지정 폴더에 .lg-fc 와 --lg-fc·--lg-folder-icon 을 붙인다) ----------
+   하위 폴더는 변수를 물려받아 같은 색: 폴더 이름 글자·펼침 화살표·들여쓰기 세로줄·폴더 기호. 배경은 칠하지 않는다 (사용자 요청).
+   선택된 줄(강조색 바탕)의 글자는 테마가 정한 잉크를 그대로 쓴다 */
+.nav-folder.lg-fc {
+  --nav-indentation-guide-color: var(--lg-fc);
+  /* 펼침 화살표: Obsidian 이 기호에 직접 이 변수 색을 주므로 변수로 바꾼다 */
+  --nav-collapse-icon-color: var(--lg-fc);
+  --nav-collapse-icon-color-collapsed: var(--lg-fc);
+}
+
+.lg-fc .nav-folder-title:not(.is-active):not(.is-selected):not(.is-being-dragged) :is(.nav-folder-title-content, .collapse-icon, .collapse-icon svg) {
+  color: var(--lg-fc);
+}
+
+/* 폴더 색 고르기 창 */
+.lg-fc-modal {
+  width: auto;
+  max-width: calc(100vw - 32px);
+}
+
+.lg-fc-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+
+.lg-fc-swatch {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  cursor: var(--cursor);
+  transition: transform 160ms ease;
+}
+
+@media (hover: hover) {
+  .lg-fc-swatch:hover {
+    transform: scale(1.12);
+  }
+}
+
+.lg-fc-swatch.is-selected {
+  box-shadow: 0 0 0 2px var(--background-primary), 0 0 0 4px var(--text-normal);
+}
+
+/* 직접 고르기 칸: 무지개 고리, 직접 고른 색이면 가운데에 그 색 */
+.lg-fc-custom {
+  position: relative;
+  background: conic-gradient(#ff3b30, #ff9500, #ffcc00, #34c759, #5ac8fa, #007aff, #5856d6, #af52de, #ff3b30);
+}
+
+.lg-fc-custom::after {
+  content: "";
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: var(--lg-fc-pick, var(--background-primary));
+}
+
+.lg-fc-custom input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lg-fc-clear {
+  display: block;
+  width: 100%;
+}
+
+/* 설정 화면 폴더 색 줄: 위아래를 줄여 표처럼 (사용자 요청) */
+.lg-settings .setting-item.lg-fc-row {
+  padding-block: 4px;
+  border-top: none;
+  align-items: center;
+}
+
+/* 이름을 줄 위아래 가운데에 (설명 칸이 비어 이름이 위로 붙어 보였다) */
+.lg-fc-row .setting-item-info {
+  align-self: center;
+}
+
+.lg-fc-row .setting-item-name {
+  line-height: var(--line-height-tight);
+}
+
+.lg-fc-row .setting-item-description:empty {
+  display: none;
+}
+
+.lg-fc-row .setting-item-name {
+  font-size: var(--font-ui-small);
+}
+
+/* 지정된 색: 폴더 수는 색 칸 바로 왼쪽에 오른쪽 맞춤 */
+.lg-fc-count {
+  min-width: 5.5em;
+  text-align: end;
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 팔레트 줄: [이름 ……] [색 코드] [색] [빼기] [손잡이] */
+.lg-fc-pal-row .setting-item-info {
+  display: none;
+}
+
+.lg-fc-pal-row .setting-item-control {
+  flex: 1 1 auto;
+  justify-content: flex-start;
+}
+
+.lg-fc-pal-row .setting-item-control input[type="text"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.lg-fc-pal-row .setting-item-control input.lg-fc-hex {
+  flex: 0 0 auto;
+  width: 6.5em;
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  text-transform: uppercase;
+}
+
+.lg-fc-grip {
+  display: flex;
+  align-items: center;
+  align-self: center;
+  flex: 0 0 auto;
+  margin-inline-start: 6px;
+  color: var(--text-faint);
+  cursor: grab;
+  touch-action: none;
+  --icon-size: var(--icon-s);
+}
+
+.lg-fc-grip:active {
+  cursor: grabbing;
+}
+
+/* 잡은 줄: 강조색으로 진하게 칠하고 테두리를 둘러 잡았다는 걸 알 수 있게 (사용자 요청) */
+.lg-settings .setting-item.lg-fc-pal-row.lg-fc-dragging {
+  position: relative;
+  z-index: 1;
+  background-color: color-mix(in srgb, var(--interactive-accent) 22%, var(--background-primary));
+  box-shadow:
+    0 0 0 1.5px var(--interactive-accent),
+    0 6px 18px rgb(0 0 0 / 0.18);
+}
+
+.lg-fc-pal-row.lg-fc-dragging .lg-fc-grip {
+  color: var(--interactive-accent);
+}
+
+body.lg-fc-sorting,
+body.lg-fc-sorting * {
+  user-select: none;
+  cursor: grabbing;
+}
+
+/* ---------- 인라인 고정 값 대신 붙이는 상태 클래스 (플러그인이 붙였다 뗀다) ----------
+   예전에는 요소에 인라인 스타일로 넣었다. 인라인은 테마·Obsidian 규칙보다 앞서므로 같은 우선을 지키려고 !important 를 쓴다.
+   WAAPI 애니메이션은 !important 에 지므로, 여기 속성들은 플러그인이 WAAPI 로 움직이지 않는 것만 둔다 */
+.lg-clip {
+  overflow: hidden !important;
+}
+
+.lg-invisible {
+  visibility: hidden !important;
+}
+
+.lg-right-auto {
+  right: auto !important;
+}
+
+.lg-bottom-auto {
+  bottom: auto !important;
+}
+
+/* 창이 작은 동안 안의 내용 크기를 고정할 때 (폭·높이는 인라인으로 잰 값) */
+.lg-pinned {
+  flex: none !important;
+}
+
+/* CSS 전환을 잠깐 끈다 (바꾼 직후 계산값을 읽거나, 처음 나타날 때 제자리에서 시작하게) */
+.lg-no-tr {
+  transition: none !important;
+}
+
+/* 같은 대상을 다시 우클릭해 옛 메뉴 자리에서 옮겨 오는 메뉴: 여는 애니메이션을 끈다 */
+.lg-no-anim {
+  animation: none !important;
+}
+
+/* 패널 탭 알약 가운데 맞춤 빈칸: 폭 차이가 없을 때 */
+.lg-basis-0 {
+  flex-basis: 0px !important;
+}
+
+/* 메뉴 호버 판: 고른 항목이 있으면 보이고 없으면 흐려진다 */
+.lg-menu-hl.lg-hl-on {
+  opacity: 1 !important;
+}
+
+.lg-menu-hl.lg-hl-off {
+  opacity: 0 !important;
+}
+
+/* 패널 탭 렌즈 틀: 움직이는 동안 보이고 멈추면 숨는다 */
+.lg-seg-indicator.lg-seg-on {
+  opacity: 1 !important;
+}
+
+.lg-seg-indicator.lg-seg-off {
+  opacity: 0 !important;
+}
+
+/* 창 제어 알약 크기 재기용 임시 요소 */
+.lg-wc-probe {
+  position: absolute !important;
+  visibility: hidden !important;
+  width: var(--lg-wc-w) !important;
+  height: var(--lg-pill-h) !important;
+}
+
+.lg-wc-probe.lg-wc-probe-k {
+  width: calc(var(--lg-wc-w) * var(--lg-wc-k, 1)) !important;
+  height: calc(var(--lg-pill-h) * var(--lg-wc-k, 1)) !important;
+}
