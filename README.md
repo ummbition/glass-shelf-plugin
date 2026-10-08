@@ -42,7 +42,7 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
 </p>
 
 ### Plugin integration
-- Kanban: groups the board buttons into a single pill
+- Kanban: restyled to match Glass Shelf
 
 ## What moves where
 
