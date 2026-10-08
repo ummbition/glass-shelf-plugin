@@ -1,4 +1,4 @@
-# Glass Shelf (Plugin)
+# Glass Shelf Companion
 
 **English** · [한국어](README.ko.md)
 
@@ -70,7 +70,7 @@ With the plugin on, a few buttons move. They work the same; only their place cha
 
 ### Tab settings
 
-Change them in **Settings → Community plugins → Glass Shelf**.
+Change them in **Settings → Community plugins → Glass Shelf Companion**.
 
 | Setting | What it does |
 |---|---|
@@ -83,7 +83,7 @@ Change them in **Settings → Community plugins → Glass Shelf**.
 ## Installation
 
 1. Install and enable the **Glass Shelf** theme in **Settings → Appearance → Themes**.
-2. Install and enable the **Glass Shelf** plugin in **Settings → Community plugins**.
+2. Install and enable the **Glass Shelf Companion** plugin in **Settings → Community plugins**.
 
 ## Supported platforms
 

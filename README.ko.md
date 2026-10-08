@@ -1,4 +1,4 @@
-# Glass Shelf (플러그인)
+# Glass Shelf Companion
 
 [English](README.md) · **한국어**
 
@@ -70,7 +70,7 @@
 
 ### 탭 관련 설정 위치
 
-**설정 → 커뮤니티 플러그인 → Glass Shelf**에서 바꿀 수 있습니다.
+**설정 → 커뮤니티 플러그인 → Glass Shelf Companion**에서 바꿀 수 있습니다.
 
 | 설정 | 내용 |
 |---|---|
@@ -83,7 +83,7 @@
 ## 설치
 
 1. **설정 → 모양 → 테마**에서 **Glass Shelf** 테마를 설치하고 켭니다.
-2. **설정 → 커뮤니티 플러그인**에서 **Glass Shelf** 플러그인을 설치하고 켭니다.
+2. **설정 → 커뮤니티 플러그인**에서 **Glass Shelf Companion** 플러그인을 설치하고 켭니다.
 
 ## 지원 환경
 
