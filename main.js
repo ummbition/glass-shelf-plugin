@@ -2667,7 +2667,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
     // 폴더 이름을 바꾸면: 옛 이름을 쓰는 폴더가 더는 없으면 색을 새 이름으로 옮긴다 (새 이름에 이미 색이 있으면 그 색을 둔다).
     // 같은 이름 폴더가 남아 있으면 옛 이름의 색은 그대로 두고, 바뀐 폴더는 새 이름의 색(없으면 기본)을 따른다.
     // 옮기기만 하면(이름 그대로) 할 일이 없다. 지운 폴더의 이름은 같은 이름이 하나도 안 남았을 때 색을 지운다
-    const nameUsed = (name) => this.app.vault.getAllLoadedFiles().some((f) => f instanceof TFolder && f.name === name);
+    const nameUsed = (name) => this.app.vault.getAllFolders().some((f) => f.name === name);
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
         if (!(file instanceof TFolder)) return;
@@ -2702,7 +2702,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
     new FolderColorModal(this.app, folder, map[folder.name], (hex) => {
       if (hex) map[folder.name] = hex;
       else delete map[folder.name];
-      const n = this.app.vault.getAllLoadedFiles().filter((f) => f instanceof TFolder && f.name === folder.name).length;
+      const n = this.app.vault.getAllFolders().filter((f) => f.name === folder.name).length;
       if (n > 1) new Notice(tr(`'${folder.name}' 이름의 폴더 ${n}개에 ${hex ? "색을 적용했습니다." : "지정한 색을 지웠습니다."}`, `${hex ? "Applied the color to" : "Cleared the color of"} ${n} folders named '${folder.name}'.`));
       this.saveFolderColors();
     }, this.folderPalette()).open();
@@ -2716,7 +2716,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
 
   // 이 이름을 쓰는 폴더 수
   folderCount(name) {
-    return this.app.vault.getAllLoadedFiles().filter((f) => f instanceof TFolder && f.name === name).length;
+    return this.app.vault.getAllFolders().filter((f) => f.name === name).length;
   }
 
   // 폴더가 새로 그려질 때(펼치기·새 폴더) 다시 칠한다. 파일 탐색기 목록마다 한 번 감시를 단다
