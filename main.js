@@ -617,6 +617,14 @@ function migrateGlassLevel(o) {
   delete o.frostLevel;
 }
 
+// 토글 안쪽 여백: 테마처럼 화면 픽셀 단위로 반올림한다 (테마 --lg-tg-pp 는 round() 식이라 계산값을 읽을 수 없다).
+// 테마는 화면 배율을 1/8 구간 값으로 어림하지만 여백 2px 정도는 같은 화면 픽셀로 떨어진다
+function tgPad(cs, win) {
+  const p = parseFloat(cs.getPropertyValue("--lg-tg-pad")) || 2;
+  const r = win.devicePixelRatio || 1;
+  return Math.round(p * r) / r;
+}
+
 // 이 플러그인이 맞춰진 테마 이름. 이 테마가 켜져 있을 때만 동작한다 (사용자 요청)
 const THEME_NAME = "Glass Shelf";
 
@@ -1378,9 +1386,9 @@ module.exports = class GlassShelfPlugin extends Plugin {
           const cs = win.getComputedStyle(tg);
           const KX = parseFloat(cs.getPropertyValue("--lg-tg-kx")) || 1;
           const KY = parseFloat(cs.getPropertyValue("--lg-tg-ky")) || 1;
-          const pad = parseFloat(cs.getPropertyValue("--lg-tg-pad")) || 2;
+          const pad = tgPad(cs, win);
           const tw = parseFloat(cs.getPropertyValue("--lg-tg-thumb")) || 32;
-          const th = tg.clientHeight - pad * 2;
+          const th = tg.getBoundingClientRect().height - pad * 2;
           tg.style.setProperty("--lg-tg-refract", `url(#${this.refractor.filterFor(Math.round(tw * KX), Math.round(th * KY), 42, false, true, doc, undefined, undefined, LENS_TOGGLE)})`);
         }
         if (el.type !== "range" || el.disabled) return;
@@ -2223,8 +2231,8 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const win = doc.defaultView || window;
     const cs = win.getComputedStyle(c);
     const W = c.clientWidth;
-    const H = c.clientHeight;
-    const pad = parseFloat(cs.getPropertyValue("--lg-tg-pad")) || 2;
+    const H = c.getBoundingClientRect().height;
+    const pad = tgPad(cs, win);
     const tw = parseFloat(cs.getPropertyValue("--lg-tg-thumb")) || 34;
     const th = H - pad * 2;
     const on = c.classList.contains("is-enabled");
