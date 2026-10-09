@@ -1,6 +1,6 @@
 "use strict";
 
-const { Plugin, PluginSettingTab, Setting, Menu, Modal, Notice, TFolder, MarkdownView, Platform, setIcon, setTooltip, getLanguage } = require("obsidian");
+const { Plugin, Component, PluginSettingTab, Setting, Menu, Modal, Notice, TFolder, MarkdownView, Platform, setIcon, setTooltip, getLanguage } = require("obsidian");
 
 // 화면 문구 언어: Obsidian 언어가 한국어면 한국어, 그 밖에는 영어 (사용자 요청)
 const LANG_KO = (() => {
@@ -20,8 +20,7 @@ const WEB_KEYS_PASS = new Set(["Enter", "Escape", "ArrowUp", "ArrowDown", "Tab"]
 const WEB_CARD_K = 2;
 
 // 웹 뷰어 페이지 안에서 도는 스크립트 (webInject). 위 여백(__LG_INSET__)을 html 에 넣고, 화면 위쪽에 붙는 고정·스티키 요소를
-// 그만큼 내린다. 대표 색이 바뀌면 콘솔로 알린다(WEB_TINT_MSG). 같은 페이지에 다시 넣으면 여백만 새로 맞춘다
-const WEB_TINT_MSG = "__lg_tint:";
+// 그만큼 내린다. 같은 페이지에 다시 넣으면 여백만 새로 맞춘다. 페이지 배경색은 WEB_COLOR_SCRIPT 로 따로 읽는다
 const WEB_PAGE_SCRIPT = `(() => {
   window.__lgInset = __LG_INSET__;
   if (window.__lgGS) { window.__lgGS(); return; }
@@ -65,30 +64,9 @@ const WEB_PAGE_SCRIPT = `(() => {
       }
     }
   };
-  // 반투명 배경은 건너뛴다: 그 색을 쓰면 탭 줄 버튼·글자 색까지 반투명해져 맨 위로 올렸을 때 사라졌다 (사용자 지적)
-  const alpha = (c) => {
-    const m = /\\/\\s*([\\d.]+)(%?)\\s*\\)$/.exec(c) || /^rgba\\([^)]*,\\s*([\\d.]+)(%?)\\s*\\)$/.exec(c);
-    return m ? parseFloat(m[1]) / (m[2] ? 100 : 1) : 1;
-  };
-  const clear = (bg) => !bg || bg === "transparent" || alpha(bg) < 0.95;
-  // 페이지 배경색: html, 없으면 body 배경 (사용자 요청: 대표 색(theme-color)보다 자연스럽다).
-  // 둘 다 투명이면 브라우저 기본 바탕(라이트 흰색, 다크 색 체계면 Chromium 기본 #121212)
-  const color = () => {
-    for (const el of [root, document.body]) {
-      const bg = el && getComputedStyle(el).backgroundColor;
-      if (!clear(bg)) return bg;
-    }
-    const dark = /dark/.test(getComputedStyle(root).colorScheme) && matchMedia("(prefers-color-scheme: dark)").matches;
-    return dark ? "#121212" : "#ffffff";
-  };
-  let last = null;
-  const report = () => {
-    const c = color();
-    if (c !== last) { last = c; console.log("${WEB_TINT_MSG}" + c); }
-  };
   let raf = 0;
   let timer = 0;
-  const tick = () => { raf = 0; fixTop(false); report(); };
+  const tick = () => { raf = 0; fixTop(false); };
   const soon = () => { if (!raf) raf = requestAnimationFrame(tick); };
   const later = () => { clearTimeout(timer); timer = setTimeout(tick, 250); };
   addEventListener("scroll", soon, { passive: true, capture: true });
@@ -117,10 +95,32 @@ const WEB_PAGE_SCRIPT = `(() => {
     }
     sheet();
     fixTop(true);
-    if (!reset) { last = null; tick(); }
+    if (!reset) tick();
   };
   window.__lgGS();
 })();`;
+// 웹 뷰어 페이지 배경색을 읽어 돌려주는 스크립트 (webReadTint). 예전엔 페이지 안 스크립트가 콘솔에 색을 찍고 플러그인이 콘솔을 엿들어,
+// 아무 사이트(광고 틀 포함)나 같은 글자를 찍으면 탭 줄 색을 바꿀 수 있었고 페이지 콘솔도 지저분해졌다 (검토 지적). 이제 플러그인이 직접 묻는다.
+// 페이지 전역 값에 기대지 않고 매번 새로 계산한다
+const WEB_COLOR_SCRIPT = `(() => {
+  const root = document.documentElement;
+  // 반투명 배경은 건너뛴다: 그 색을 쓰면 탭 줄 버튼·글자 색까지 반투명해져 맨 위로 올렸을 때 사라졌다 (사용자 지적)
+  const alpha = (c) => {
+    const m = /\\/\\s*([\\d.]+)(%?)\\s*\\)$/.exec(c) || /^rgba\\([^)]*,\\s*([\\d.]+)(%?)\\s*\\)$/.exec(c);
+    return m ? parseFloat(m[1]) / (m[2] ? 100 : 1) : 1;
+  };
+  const clear = (bg) => !bg || bg === "transparent" || alpha(bg) < 0.95;
+  // 페이지 배경색: html, 없으면 body 배경 (사용자 요청: 대표 색(theme-color)보다 자연스럽다).
+  // 둘 다 투명이면 브라우저 기본 바탕(라이트 흰색, 다크 색 체계면 Chromium 기본 #121212)
+  for (const el of [root, document.body]) {
+    const bg = el && getComputedStyle(el).backgroundColor;
+    if (!clear(bg)) return bg;
+  }
+  const dark = /dark/.test(getComputedStyle(root).colorScheme) && matchMedia("(prefers-color-scheme: dark)").matches;
+  return dark ? "#121212" : "#ffffff";
+})()`;
+// 보이는 웹 페이지의 배경색을 다시 읽는 간격(ms): 사이트가 다크 모드 전환 등으로 배경을 바꿔도 따라간다
+const WEB_TINT_POLL_MS = 1000;
 // 탭에 보일 도메인 (www. 는 뺀다)
 // 주소가 없거나 웹 주소가 아니면(빈 탭의 about:blank 등) 도메인 대신 웹 뷰어 탭 이름을 보인다 (사용자 지적: 비거나 about:blank 가 보였다)
 const webHost = (view) => {
@@ -393,6 +393,9 @@ const PRESS_POP = [
 // 버튼 → 메뉴(창): 버튼은 메뉴 가운데를 향해 MORPH_DASH 만큼 돌진하며 사라지고, 메뉴는 그 지점에서 넓어져 나온다.
 // 닫힐 때는 거기서 나타나 반대쪽으로 MORPH_OVERSHOOT 만큼 지나쳤다가 제자리로 온다. 크기와 상관없이 같은 거리(px)
 const MORPH_DASH = 30;
+// 모바일 누름 효과: 시작을 늦추는 시간(ms)과 스크롤로 보는 손가락 이동 거리(px)
+const PRESS_DELAY_MS = 90;
+const PRESS_SLOP = 10;
 const MORPH_OVERSHOOT = 5;
 // 창이 펼쳐질 때 펼쳐지는 방향으로 살짝 밀렸다 돌아오는 거리(px)
 const MORPH_NUDGE = 3;
@@ -596,6 +599,8 @@ const SL_SQUASH_Y_STOP = 1.3; // 멈출 때 가로로 줄어든 만큼의 이 �
 const SL_STOP_MIN = 0.12; // 멈출 때 가로로 가장 많이 줄어드는 정도
 const SL_STOP_IN_S = 0.14; // 멈춘 순간부터 가장 줄어들 때까지(초). 이 구간은 일정한 속도로 (사용자 요청: 부드러움은 마지막 복귀에만)
 const SL_SETTLE_S = 0.115; // 가장 줄어든 지점부터 제자리로 천천히 출발해 감속하며 돌아가는 시간 상수(초)
+// 굴절 변위 지도 캐시 개수 (Refractor.filterFor)
+const MAP_CACHE = 200;
 const LENS_TAB = { minify: 1.2, flat: 0.94, edge: 2, reach: 1.1, shape: 1 };
 
 // 누를 때 알약이 되는 흰색. 알약 채움(테마 --lg-glass-fill)이 color-mix 라 color(srgb …) 로 계산되는데,
@@ -622,15 +627,54 @@ module.exports = class GlassShelfPlugin extends Plugin {
     return !!cc && cc.theme === THEME_NAME;
   }
 
+  // 테마가 켜져 있는 동안의 모든 동작은 자식 Component(this.core) 하나에 묶는다. 테마가 바뀌면(켜짐·꺼짐) 그 자식만 떼고 붙인다.
+  // 예전엔 플러그인이 스스로 껐다 켰는데(app.plugins 비공개 API), 그 방식은 심사 지적 대상이고 끌 때마다 옛 인스턴스가 남기는 것이 생겼다 (검토 지적).
+  // 동작 코드는 모두 this.register…(registerEvent·registerDomEvent·registerInterval·addSettingTab 도 안에서 register 를 부른다)로 정리를 맡기므로,
+  // 자식이 붙어 있는 동안 register 를 자식에게 넘기면 기존 코드를 그대로 두고 자식을 뗄 때 함께 정리된다
+  register(cb) {
+    if (this.core) this.core.register(cb);
+    else super.register(cb);
+  }
+
   async onload() {
-    // 테마가 바뀌면(켜짐·꺼짐) 플러그인을 다시 불러 동작을 켜고 끈다. 끌 때의 정리는 onunload 가 맡는다
-    this.coreOn = this.themeOn();
-    this.registerEvent(
-      this.app.workspace.on("css-change", () => {
-        if (this.themeOn() !== this.coreOn) this.reloadSelf();
-      })
-    );
-    if (!this.coreOn) return;
+    this.unloaded = true; // 자식이 붙기 전(테마 꺼짐)엔 늦게 도는 동작이 아무것도 하지 않게 한다
+    this.registerEvent(this.app.workspace.on("css-change", () => this.syncCore()));
+    await this.syncCore();
+  }
+
+  // 테마 상태에 맞춰 자식을 붙이거나 뗀다. 테마를 빠르게 여러 번 바꿔도 차례로 한다
+  syncCore() {
+    this.coreQueue = (this.coreQueue || Promise.resolve())
+      .then(() => this.applyCore())
+      .catch((err) => console.error("[glass-shelf] theme switch", err));
+    return this.coreQueue;
+  }
+
+  async applyCore() {
+    const on = this.themeOn();
+    if (on === !!this.core) return;
+    if (this.core) {
+      // 떼면 등록해 둔 정리와 teardown(자식의 onunload)이 돈다. 그다음 붙인 뒤 생긴 플러그인 상태를 모두 지워,
+      // 다시 붙일 때 새로 켠 것과 같게 한다 (지우지 않으면 "이미 연결됨" 표시가 남아 다시 붙지 않는다)
+      const core = this.core;
+      this.removeChild(core);
+      for (const k of Object.keys(this)) if (!this.coreKeys.has(k)) delete this[k];
+      this.core = null;
+      this.unloaded = true;
+      return;
+    }
+    delete this.unloaded;
+    this.coreKeys = new Set(Object.keys(this));
+    this.coreKeys.add("coreKeys");
+    const core = new Component();
+    core.onunload = () => this.teardown();
+    this.core = core;
+    this.addChild(core);
+    await this.startCore();
+  }
+
+  // 테마가 켜졌을 때의 준비 (예전 onload 의 본문)
+  async startCore() {
     // 공유 설정: 플러그인 폴더의 data.json (동기화되어 모든 기기가 같이 쓴다)
     const raw = (await this.loadData()) || {};
     migrateGlassLevel(raw);
@@ -653,6 +697,11 @@ module.exports = class GlassShelfPlugin extends Plugin {
     this.docs = new Set();
     this.refractor = new Refractor();
     this.attachDoc(document);
+    // 이미 열려 있는 별도 창(팝아웃)에도 붙인다: 앱을 켤 때 되살아난 창이나, 테마를 다시 켰을 때 열려 있던 창은 window-open 이 다시 오지 않는다
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const d = leaf.view && leaf.view.containerEl && leaf.view.containerEl.ownerDocument;
+      if (d && d !== document) this.attachDoc(d);
+    });
     this.applySettings();
     // 리본 여닫기 애니메이션: 왼쪽 패널이 실제로 열리고 닫힐 때만 잠깐 켠다 (CSS: body.lg-rib-anim). 모바일은 리본이 서랍 안이라 없다
     if (!Platform.isMobile) {
@@ -738,8 +787,9 @@ module.exports = class GlassShelfPlugin extends Plugin {
       for (const d of this.docs) if (d !== document && (!d.defaultView || d.defaultView.closed)) this.docs.delete(d);
     };
     findSettings();
-    this.registerDomEvent(window, "blur", () => {
-      for (const t of [60, 300, 1000]) window.setTimeout(findSettings, t);
+    // 별도 창(데스크톱)으로 뜬 설정 창을 찾는 용도라 모바일에선 달지 않는다 (검토 지적: 앱을 내릴 때마다 타이머 3개가 돌았다)
+    if (!Platform.isMobile) this.registerDomEvent(window, "blur", () => {
+      for (const t of [60, 300, 1000]) window.setTimeout(() => !this.unloaded && findSettings(), t);
     });
   }
 
@@ -842,6 +892,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
   }
 
   attachDoc(doc) {
+    if (this.unloaded) return;
     if (this.docs.has(doc)) return;
     this.docs.add(doc);
     try {
@@ -1005,9 +1056,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
     );
 
     // 클릭 효과 (누를 때만)
-    this.registerDomEvent(
-      doc,
-      "pointerdown",
+    const pressFx =
       (e) => {
         if (e.button !== 0 || !isEl(e.target)) return;
         // 메뉴 항목: 메뉴 판 안에서 누른 자리부터 알약 안 버튼과 같은 흰 빛이 퍼진다 (사용자 요청).
@@ -1059,9 +1108,36 @@ module.exports = class GlassShelfPlugin extends Plugin {
             this.pressRipple(tab, e, d, "lg-ripple-tab", true, from.toFixed(3));
           }
         }
-      },
-      { capture: true }
-    );
+      };
+    if (!Platform.isMobile) {
+      this.registerDomEvent(doc, "pointerdown", pressFx, { capture: true });
+    } else {
+      // 모바일: 스크롤하려고 손가락을 대기만 해도 누름 효과가 나왔다 (검토 지적). 효과를 PRESS_DELAY_MS 늦게 시작하고,
+      // 그 사이 손가락이 PRESS_SLOP px 넘게 움직이거나 터치가 취소(pointercancel, 스크롤 시작)되면 취소한다. 그 전에 떼면 뗄 때 바로 시작한다
+      let pend = null;
+      const drop = () => {
+        if (!pend) return;
+        win.clearTimeout(pend.t);
+        pend = null;
+      };
+      const fire = () => {
+        if (!pend) return;
+        const ev = pend.e;
+        drop();
+        pressFx(ev);
+      };
+      this.registerDomEvent(doc, "pointerdown", (e) => {
+        drop();
+        if (e.button !== 0 || !isEl(e.target)) return;
+        pend = { e, x: e.clientX, y: e.clientY, t: win.setTimeout(fire, PRESS_DELAY_MS) };
+      }, { capture: true, passive: true });
+      this.registerDomEvent(doc, "pointermove", (e) => {
+        if (pend && Math.hypot(e.clientX - pend.x, e.clientY - pend.y) > PRESS_SLOP) drop();
+      }, { capture: true, passive: true });
+      this.registerDomEvent(doc, "pointercancel", drop, { capture: true, passive: true });
+      this.registerDomEvent(doc, "pointerup", fire, { capture: true, passive: true });
+      this.register(drop);
+    }
 
     // 칸반 목록 접기·펴기 (테마 Kanban 연동)
     this.registerDomEvent(
@@ -1425,7 +1501,8 @@ module.exports = class GlassShelfPlugin extends Plugin {
           }
         };
         const mo = new win.MutationObserver(step);
-        mo.observe(doc.body, { childList: true, subtree: true });
+        // 문서 전체 대신 그 체크박스가 든 보기 칸만 본다 (검토 지적). 칸 밖(칸반 끌기 등)이면 문서 전체
+        mo.observe(cb.closest(".workspace-leaf-content") || doc.body, { childList: true, subtree: true });
         win.setTimeout(() => mo.disconnect(), 1600);
         win.requestAnimationFrame(step);
       },
@@ -2181,8 +2258,11 @@ module.exports = class GlassShelfPlugin extends Plugin {
       const x = x0 + (x1 - x0) * m.ease;
       const puff = 1 + 0.5 * m.g; // 가장 커질 때 약 1.5배(늘어남 포함 약 1.76배, 테마 상자 배율 1.75·1.8 근처)
       const sx = puff * (1 + m.d);
-      const sy = puff * (1 - m.d * 0.7);
       const g = m.g;
+      // 모바일은 렌즈를 위아래로 키울 때 높이(height·top) 대신 같은 양만큼 세로 배율로 키운다. 높이를 바꾸면 매 프레임 배치를 다시 계산해,
+      // 카드가 수백 장인 휴대폰 커뮤니티 창에서 토글을 누를 때 창 머리(제목·X)가 한 프레임씩 사라졌다 (실기기 녹화로 확인, 원인은 추정).
+      // 모서리는 그만큼 살짝 늘어난다
+      const sy = puff * (1 - m.d * 0.7) * (Platform.isMobile ? (th + LENS_TG_TALL * g) / th : 1);
       frames.push({
         offset: u,
         // 렌즈가 되면 위아래로 실제 높이를 조금 더 키운다. 모서리 반지름은 원래 알약 그대로 고정해서(곡률 유지)
@@ -2200,6 +2280,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
       });
     }
 
+    if (Platform.isMobile) for (const f of frames) { delete f.height; delete f.top; }
     // 모바일은 렌즈 그림자를 애니메이션하지 않는다: 매 프레임 바뀌는 넓은 그림자가 화면을 다시 그리게 해, 휴대폰 커뮤니티 창에서 토글을 누를 때
     // 위쪽 버튼들이 깜빡였다 (사용자 지적, 그림자만 뺀 시험에서 거의 사라짐을 사용자가 확인). 굴절·채움·모양 변화는 그대로다
     if (Platform.isMobile) for (const f of frames) delete f.boxShadow;
@@ -2224,7 +2305,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const w = Math.round(tw * K);
     const h = Math.round(th * K);
     const lens = doc.createElement("div");
-    lens.className = "lg-sl-lens";
+    lens.className = "lg-sl-lens " + INJECTED; // 누른 채 플러그인을 끄면 남지 않게 정리 대상에 넣는다 (검토 지적)
     lens.style.width = `${w}px`;
     lens.style.height = `${h}px`;
     const rx = parseFloat(cs.getPropertyValue("--lg-pill-rx")) || 0.5;
@@ -2323,25 +2404,18 @@ module.exports = class GlassShelfPlugin extends Plugin {
     (this.pendingRelease || (this.pendingRelease = new Set())).add(off);
   }
 
-  // 테마가 켜지거나 꺼질 때: 플러그인을 껐다 켜 onload 가 처음부터 다시 판단하게 한다 (켜진 플러그인 목록은 그대로 남는다)
-  reloadSelf() {
-    if (this.reloading) return;
-    this.reloading = true;
-    const id = this.manifest.id;
-    const plugins = this.app.plugins;
-    window.setTimeout(async () => {
-      try {
-        await plugins.disablePlugin(id);
-        await plugins.enablePlugin(id);
-      } catch (err) {
-        console.error("[glass-shelf] reload", err);
-      }
-    }, 0);
-  }
-
-  onunload() {
-    // 테마가 꺼져 있어 동작하지 않았으면 정리할 것도 없다
-    if (!this.coreOn) return;
+  // 테마가 꺼지거나 플러그인을 끌 때의 정리 (자식 Component 의 onunload. 등록해 둔 정리가 끝난 뒤에 돈다, 예전 플러그인 onunload 와 같은 순서)
+  teardown() {
+    // 끈 뒤에 늦게 도는 프레임·타이머가 화면을 다시 만들지 않게 표시해 둔다 (refresh·attachDoc 등이 보고 돌아간다, 검토 지적)
+    this.unloaded = true;
+    if (this.saveTimer) {
+      window.clearTimeout(this.saveTimer);
+      this.saveTimer = 0;
+      this.saveData(this.settings);
+    }
+    if (this.frame) window.cancelAnimationFrame(this.frame);
+    if (this.fcFrame) window.cancelAnimationFrame(this.fcFrame);
+    this.frame = this.fcFrame = 0;
     if (this.pendingRelease) this.pendingRelease.forEach((f) => f());
     this.observers.forEach((o) => o.disconnect());
     this.refractor.destroy();
@@ -2379,7 +2453,28 @@ module.exports = class GlassShelfPlugin extends Plugin {
         for (let i = 0; i < el.style.length; i++) if (el.style[i].startsWith("--lg-")) props.push(el.style[i]);
         props.forEach((p) => el.style.removeProperty(p));
       });
+      // 요소·문서에 붙여 둔 lg 표시(lgBandObs, lgNavRoot, lgLens 등)를 걷어 낸다: 남으면 다시 켰을 때 "이미 연결됨"으로 보고 건너뛴다 (검토 지적).
+      // 걸어 둔 애니메이션은 취소하고(버튼이 숨은 채 남지 않게), 감시는 끊고, 타이머·프레임은 멈춘다
+      const win = doc.defaultView || window;
+      const scrub = (o) => {
+        for (const k of Object.keys(o)) {
+          if (!/^lg[A-Z]/.test(k)) continue;
+          const v = o[k];
+          try {
+            if (v && typeof v.cancel === "function") v.cancel();
+            else if (v && typeof v.disconnect === "function") v.disconnect();
+            else if (typeof v === "number" && /Timer/.test(k)) win.clearTimeout(v);
+            else if (typeof v === "number" && /Loop|Frame|Raf/.test(k)) win.cancelAnimationFrame(v);
+          } catch {
+            /* 이미 끝난 것 */
+          }
+          delete o[k];
+        }
+      };
+      scrub(doc);
+      doc.querySelectorAll("*").forEach(scrub);
     }
+    this.app.workspace.iterateAllLeaves((leaf) => leaf.view && (() => { for (const k of Object.keys(leaf.view)) if (/^lg[A-Z]/.test(k)) delete leaf.view[k]; })());
   }
 
   // 메뉴가 뜰 때: 커지는 기준점을 누른 자리로 둔다.
@@ -2390,6 +2485,9 @@ module.exports = class GlassShelfPlugin extends Plugin {
     if (menu.lgSnap) return;
     const doc = menu.ownerDocument;
     const win = doc.defaultView || window;
+    // 안전장치 (검토 지적): 태블릿은 준비(.lg-menu-ready) 전까지 메뉴의 커지는 애니메이션을 멈춰 둔다(테마). 아래에서 오류가 나 준비 표시를
+    // 못 붙이면 메뉴가 투명한 채 남으므로, 0.4초 뒤에는 무조건 붙인다
+    win.setTimeout(() => menu.classList.add("lg-menu-ready"), 400);
     // 다른 메뉴가 이미 떠 있으면 하위 메뉴다. 방금 누른 게 있어도 그 누름은 부모 메뉴 몫이므로 쓰지 않는다
     // (안 그러면 속성 칸을 누르고 바로 하위 메뉴를 열 때 하위 메뉴까지 칸 밑으로 옮겨져 부모와 겹친다)
     // 단, 열린 메뉴가 뜬 뒤에 메뉴 바깥을 새로 눌러 연 메뉴는 하위 메뉴가 아니다: 열린 메뉴가 아직 닫히기 전에
@@ -3138,9 +3236,14 @@ module.exports = class GlassShelfPlugin extends Plugin {
     this.requestRefresh();
   }
 
+  // 설정은 바로 반영하고, 파일 저장은 0.4초 모아서 한 번 한다 (검토 지적: 색 고르기·글자 칸은 입력할 때마다 data.json 을 썼다). 끌 때 남은 저장은 바로 한다
   async saveSettings() {
-    await this.saveData(this.settings);
     this.applySettings();
+    if (this.saveTimer) window.clearTimeout(this.saveTimer);
+    this.saveTimer = window.setTimeout(() => {
+      this.saveTimer = 0;
+      this.saveData(this.settings);
+    }, 400);
   }
 
   // ---------- 폴더 색 (폴더 컬러 매니저 플러그인 기능을 옮겨 옴) ----------
@@ -3224,6 +3327,15 @@ module.exports = class GlassShelfPlugin extends Plugin {
     return Array.isArray(p) ? p : FOLDER_PALETTE;
   }
 
+  // 아직 폴더 색·줄무늬 감시를 달지 않은 파일 탐색기 목록이 있는지
+  hasNewExplorer() {
+    if (!this.fcWatched) return true;
+    for (const doc of this.docs) {
+      for (const list of doc.querySelectorAll('.workspace-leaf-content[data-type="file-explorer"] .nav-files-container')) if (!this.fcWatched.has(list)) return true;
+    }
+    return false;
+  }
+
   // 이 이름을 쓰는 폴더 수
   folderCount(name) {
     return this.app.vault.getAllFolders().filter((f) => f.name === name).length;
@@ -3231,6 +3343,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
 
   // 폴더가 새로 그려질 때(펼치기·새 폴더) 다시 칠한다. 파일 탐색기 목록마다 한 번 감시를 단다
   requestFolderColors(all) {
+    if (this.unloaded) return;
     if (all) this.fcAll = true;
     if (this.fcFrame) return;
     this.fcFrame = window.requestAnimationFrame(() => {
@@ -3347,6 +3460,8 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const k0 = rows.length ? Math.round((top(rects[0]) - pad) / step) : 0;
     // 폭: 왼쪽은 목록 왼쪽 끝에서 알약 간격(--lg-gap)만큼 띄운 자리(줄 하이라이트와 같은 자리), 오른쪽은 목록 안쪽 끝(스크롤바 칸 왼쪽 끝)까지.
     // 막대와의 거리가 막대 둘레 테두리(창 가장자리와의 거리와 같다)가 된다 (사용자 요청)
+    // 왼쪽 끝은 줄마다 같다: 반복문 밖에서 한 번만 읽는다 (막대를 쓰는 사이에 스타일을 읽으면 줄마다 다시 계산했다, 검토 지적)
+    const bl = this.rowGapLeft(list);
     const keep = new Set();
     rows.forEach((r, i) => {
       if ((k0 + i) % 2 !== 1) return;
@@ -3366,7 +3481,6 @@ module.exports = class GlassShelfPlugin extends Plugin {
       keep.add(bar);
       bar.style.top = `${top(rc)}px`;
       // 왼쪽은 목록 왼쪽 끝에서 알약 간격(--lg-gap)만큼 (줄 하이라이트와 같은 자리, 사용자 요청)
-      const bl = this.rowGapLeft(list);
       bar.style.left = `${bl + list.scrollLeft}px`;
       bar.style.width = `${list.clientWidth - bl}px`;
       bar.style.height = `${h}px`;
@@ -3416,6 +3530,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
 
   // 이벤트가 몰려 와도 한 프레임에 한 번만 갱신
   requestRefresh() {
+    if (this.unloaded) return;
     if (this.frame) return;
     this.frame = window.requestAnimationFrame(() => {
       this.frame = null;
@@ -3424,8 +3539,11 @@ module.exports = class GlassShelfPlugin extends Plugin {
   }
 
   refresh() {
+    if (this.unloaded) return;
     const ws = this.app.workspace;
-    if (this.shared && this.shared.folderColorsByName) this.requestFolderColors();
+    // 폴더 색·줄무늬는 목록마다 단 감시가 이후 변화를 맡는다. 여기서는 아직 감시를 달지 않은 파일 탐색기 목록이 있을 때만 부른다
+    // (검토 지적: 레이아웃이 바뀔 때마다 모든 목록을 다시 칠하고 줄무늬를 다시 쟀다)
+    if (this.shared && this.shared.folderColorsByName && this.hasNewExplorer()) this.requestFolderColors();
     // 모바일 사이드바는 서랍(탭 줄 없음)이라 ··· · 닫기 버튼을 달지 않는다.
     // 대신 테마가 펼쳐 둔 보기 전환 줄에 선택 렌즈를 붙인다
     if (!Platform.isMobile) {
@@ -3444,6 +3562,11 @@ module.exports = class GlassShelfPlugin extends Plugin {
       ws.rootSplit.containerEl
         .querySelectorAll(".workspace-tabs")
         .forEach((tabsEl) => this.setupRootTabs(tabsEl));
+      // 별도 창(팝아웃)의 편집창 탭 줄도 같게 꾸민다 (예전엔 메인 창만 봐서 별도 창 탭 줄은 도구 없이 남았다, 검토 지적)
+      for (const doc of this.docs) {
+        if (doc === document || !doc.body) continue;
+        doc.querySelectorAll(".workspace-split.mod-root .workspace-tabs").forEach((tabsEl) => this.setupRootTabs(tabsEl));
+      }
     }
     if (!Platform.isPhone) ws.getLeavesOfType("kanban").forEach((l) => this.setupKanban(l.view));
     this.refractor.prune();
@@ -4167,7 +4290,12 @@ module.exports = class GlassShelfPlugin extends Plugin {
       menu.showAtPosition({ x: r.right - 1, y: up ? r.top - MENU_DROP : r.bottom + MENU_DROP, width: 1, overlap: true, left: true });
     });
     // 보기가 바뀌거나(active-tab-content 의 자식 교체) 보기가 늦게 그려질 때 ··· 을 보이거나 숨긴다
-    const obs = new MutationObserver(sync);
+    // 목록(파일 탐색기·검색 결과 등)은 스크롤할 때마다 줄이 바뀐다. 그 안의 변화는 버튼 줄과 무관하니 다시 세지 않는다 (검토 지적: 스크롤마다 sync 가 돌았다)
+    const LIST = ".nav-files-container, .tree-item-children, .search-result-container, .search-results-children";
+    const obs = new MutationObserver((recs) => {
+      if (recs.every((r) => r.target.nodeType === 1 && r.target.closest(LIST))) return;
+      sync();
+    });
     obs.observe(content, { subtree: true, childList: true });
     this.observers.push(obs);
   }
@@ -4708,9 +4836,10 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const reload = view.reloadButtonEl && view.reloadButtonEl.parentElement;
     if (!addr) return null;
     // 탭 알약 안에서는 누름이 탭을 끌거나 고르는 데로 가지 않게 한다 (글자를 끌어 고르기)
-    if (!addr.lgWired) {
-      addr.lgWired = true;
-      for (const type of ["mousedown", "pointerdown"]) addr.addEventListener(type, (e) => e.stopPropagation());
+    if (!this.addrWired) this.addrWired = new WeakSet();
+    if (!this.addrWired.has(addr)) {
+      this.addrWired.add(addr);
+      for (const type of ["mousedown", "pointerdown"]) this.registerDomEvent(addr, type, (e) => e.stopPropagation());
     }
     return { addr, reload };
   }
@@ -4897,25 +5026,55 @@ module.exports = class GlassShelfPlugin extends Plugin {
   // 페이지 배경색(html, 없으면 body)을 읽어 탭 줄 유리판을 그 색으로 칠한다. 페이지 스크립트가 바뀔 때마다 알린다
   webWire(view) {
     const wv = view.webview;
-    if (!wv || wv.lgWired) return;
-    wv.lgWired = true;
-    wv.addEventListener("dom-ready", () => {
+    // 연결 표시와 리스너는 플러그인 쪽에 둔다: 웹 뷰어(요소)에 남기면 플러그인을 다시 켰을 때 "이미 연결됨"으로 보고 건너뛰고,
+    // 옛 리스너는 꺼진 플러그인을 계속 깨웠다 (검토 지적). registerDomEvent 는 끌 때 리스너를 뗀다
+    if (!this.wvWired) this.wvWired = new WeakSet();
+    if (!wv || this.wvWired.has(wv)) return;
+    this.wvWired.add(wv);
+    this.registerDomEvent(wv, "dom-ready", () => {
       view.lgInjectTries = 0;
       this.webInject(view, true);
     });
-    wv.addEventListener("did-start-navigation", (e) => {
+    this.registerDomEvent(wv, "did-start-navigation", (e) => {
       if (e.isMainFrame === false || e.isInPlace) return;
       view.lgTint = null;
       this.webTint(view);
     });
-    wv.addEventListener("console-message", (e) => {
-      const m = e && e.message;
-      if (typeof m !== "string" || !m.startsWith(WEB_TINT_MSG)) return;
-      const c = m.slice(WEB_TINT_MSG.length).trim();
-      view.lgTint = c && CSS.supports("color", c) ? c : null;
-      this.webTint(view);
-    });
+    // 페이지를 다 불러왔을 때와 페이지 안 이동 뒤에 색을 다시 읽는다
+    this.registerDomEvent(wv, "did-stop-loading", () => this.webReadTint(view));
+    this.registerDomEvent(wv, "did-navigate-in-page", () => this.webReadTint(view));
     if (view.webviewMounted) this.webInject(view, true);
+    // 보이는 웹 페이지 색을 주기적으로 다시 읽는다 (플러그인 전체에 하나, 끌 때 registerInterval 이 멈춘다)
+    if (!this.webTintPoll) {
+      this.webTintPoll = window.setInterval(() => {
+        if (this.unloaded || !this.settings.webTint) return;
+        this.app.workspace.getLeavesOfType("webviewer").forEach((leaf) => {
+          const tabs = leaf.parent && leaf.parent.containerEl;
+          if (tabs && this.activeLeafOf(tabs) === leaf) this.webReadTint(leaf.view);
+        });
+      }, WEB_TINT_POLL_MS);
+      this.registerInterval(this.webTintPoll);
+    }
+  }
+
+  // 페이지 배경색을 물어 받아 탭 줄을 칠한다. 앞 질문이 끝나기 전엔 다시 묻지 않는다
+  webReadTint(view) {
+    const wv = view && view.webview;
+    if (!wv || !view.webviewMounted || !wv.isConnected || view.lgTintBusy) return;
+    view.lgTintBusy = true;
+    const done = (c) => {
+      view.lgTintBusy = false;
+      if (this.unloaded) return;
+      const v = typeof c === "string" && CSS.supports("color", c) ? c : null;
+      if (v === view.lgTint) return;
+      view.lgTint = v;
+      this.webTint(view);
+    };
+    try {
+      wv.executeJavaScript(WEB_COLOR_SCRIPT).then(done, () => { view.lgTintBusy = false; });
+    } catch (err) {
+      view.lgTintBusy = false;
+    }
   }
 
   // 파일 탐색기 줄 높이를 다시 재게 한다: 탐색기는 보이는 줄만 그리고 나머지는 처음 잰 줄 높이로 자리를 잡는데,
@@ -4951,13 +5110,14 @@ module.exports = class GlassShelfPlugin extends Plugin {
   // 새 탭에서 페이지를 옮겨도 뒤로·앞으로 버튼이 다른 탭에 갔다 올 때까지 나오지 않았다 (사용자 지적)
   webNavWire(view) {
     const wv = view.webview;
-    if (!wv || wv.lgNavWired) return;
-    wv.lgNavWired = true;
+    if (!this.wvNavWired) this.wvNavWired = new WeakSet();
+    if (!wv || this.wvNavWired.has(wv)) return;
+    this.wvNavWired.add(wv);
     const upd = () => window.setTimeout(() => this.requestRefresh(), 60);
-    wv.addEventListener("did-navigate", upd);
-    wv.addEventListener("did-navigate-in-page", upd);
+    this.registerDomEvent(wv, "did-navigate", upd);
+    this.registerDomEvent(wv, "did-navigate-in-page", upd);
     // 방문 기록은 이동 알림보다 늦게(다 불러온 무렵) 늘어나서, 다 불러왔을 때도 다시 맞춘다 (재 보니 이동 알림 때는 아직 0)
-    wv.addEventListener("did-stop-loading", upd);
+    this.registerDomEvent(wv, "did-stop-loading", upd);
   }
 
   // 페이지에 위 여백(탭 줄 아래 끝까지의 높이)을 알린다. 높이가 바뀌었을 때(경로 표시 켜고 끄기 등)만 다시 보낸다
@@ -4981,7 +5141,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
     if (!force && view.lgInset === inset) return;
     view.lgInset = inset;
     try {
-      wv.executeJavaScript(WEB_PAGE_SCRIPT.replace("__LG_INSET__", String(inset))).catch(() => {});
+      wv.executeJavaScript(WEB_PAGE_SCRIPT.replace("__LG_INSET__", String(inset))).then(() => this.webReadTint(view), () => {});
     } catch (err) {
       console.error("[glass-shelf] web inset", err);
     }
@@ -5275,9 +5435,12 @@ class SegmentLens {
     const sizes = [];
     for (const [w0, h0, wa, ha] of legs) for (let k = 0; k <= 1.0001; k += 0.05) sizes.push([w0 + (wa - w0) * k, h0 + (ha - h0) * k]);
     const win = this.header.ownerDocument.defaultView || window;
+    // 굽는 도중 테마를 끄거나 플러그인을 끄면 멈춘다 (굴절 도구가 바뀌었거나 없어졌다)
+    const ref = this.plugin.refractor;
     const idle = win.requestIdleCallback ? (fn) => win.requestIdleCallback(fn, { timeout: 2000 }) : (fn) => win.setTimeout(fn, 50);
     const next = () =>
       idle((dl) => {
+        if (this.plugin.unloaded || this.plugin.refractor !== ref) return;
         while (sizes.length && (!dl || dl.timeRemaining() > 4)) {
           const [w, h] = sizes.shift();
           try {
@@ -5541,12 +5704,14 @@ class Refractor {
     const lensTag = lens === LENS_DEFAULT ? "lens" : `lens-${[lens.minify, lens.flat, lens.edge, lens.reach, lens.shape || 2].join("-").replace(/\./g, "p")}`;
     const bm = Math.round(bezelMax * 10);
     const mapKey = outward ? `${w}x${h}-${lensTag}` : `${w}x${h}-b${bz}-s${sp}-m${bm}`;
-    if (!this.maps.has(mapKey)) {
-      this.maps.set(mapKey, outward ? this.bakeLensMap(w, h, lens) : { url: this.bakeMap(w, h, false, bezel, spread, bezelMax) });
-      // 변위 맵 캐시는 최근 80개만 (오래된 것부터 버린다)
-      if (this.maps.size > 80) this.maps.delete(this.maps.keys().next().value);
-    }
-    const baked = this.maps.get(mapKey);
+    // 변위 맵 캐시는 최근에 쓴 MAP_CACHE 개만 남긴다. 쓸 때마다 맨 뒤로 옮겨, 오래 안 쓴 것부터 버린다
+    // (예전엔 들어온 순서대로 버려 자주 쓰는 지도부터 밀려났고, 애니메이션 중에 다시 굽느라 끊겼다, 검토 지적.
+    // 탭 렌즈 하나가 미리 굽는 크기만 60개 남짓이라 개수도 늘렸다)
+    let baked = this.maps.get(mapKey);
+    if (baked) this.maps.delete(mapKey);
+    else baked = outward ? this.bakeLensMap(w, h, lens) : { url: this.bakeMap(w, h, false, bezel, spread, bezelMax) };
+    this.maps.set(mapKey, baked);
+    if (this.maps.size > MAP_CACHE) this.maps.delete(this.maps.keys().next().value);
     const map = baked.url;
     if (outward) strength = baked.scale;
     const key = outward ? `lg-rf-${w}x${h}-${lensTag}` : `lg-rf-${w}x${h}-${String(strength).replace(/\./g, "p")}${chroma ? "c" : ""}-b${bz}-s${sp}-m${bm}`;
@@ -6100,7 +6265,7 @@ class GlassShelfSettingTab extends PluginSettingTab {
       );
 
     if (this.plugin.settings.folderColor === "custom") {
-      sub(new Setting(containerEl).setName(tr("폴더 아이콘 색 지정", "Folder icon color"))).addColorPicker((c) =>
+      sub(new Setting(containerEl).setName(tr("폴더 아이콘 색 지정", "Custom folder icon color"))).addColorPicker((c) =>
         c.setValue(this.plugin.settings.folderColorCustom).onChange(async (value) => {
           this.plugin.settings.folderColorCustom = value;
           await this.plugin.saveSettings();
@@ -6123,7 +6288,7 @@ class GlassShelfSettingTab extends PluginSettingTab {
     );
 
     // 지정된 색: [이름 ……… 폴더 n곳 | 색 | 지우기]
-    const names = Object.keys(map).sort((x, y) => x.localeCompare(y, "ko"));
+    const names = Object.keys(map).sort((x, y) => x.localeCompare(y, getLanguage()));
     if (!names.length) new Setting(containerEl).setName(tr("지정된 색 없음", "No colors assigned")).setClass("lg-settings-sub").setClass("lg-fc-row");
     for (const name of names) {
       const n = pl.folderCount(name);
