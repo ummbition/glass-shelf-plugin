@@ -12,6 +12,177 @@ const LANG_KO = (() => {
 })();
 const tr = (ko, en) => (LANG_KO ? ko : en);
 
+// 웹 뷰어(코어 플러그인) 보기인지
+const isWebView = (v) => !!v && typeof v.getViewType === "function" && v.getViewType() === "webviewer";
+// 경로 알약 안 입력칸에서 눌러도 위로 올려 보내는 키: 주소 제안 목록(Obsidian 키 범위)이 받아야 한다
+const WEB_KEYS_PASS = new Set(["Enter", "Escape", "ArrowUp", "ArrowDown", "Tab"]);
+// 주소 카드 폭 (편집창 탭 기본 폭 대비)
+const WEB_CARD_K = 2;
+
+// 웹 뷰어 페이지 안에서 도는 스크립트 (webInject). 위 여백(__LG_INSET__)을 html 에 넣고, 화면 위쪽에 붙는 고정·스티키 요소를
+// 그만큼 내린다. 대표 색이 바뀌면 콘솔로 알린다(WEB_TINT_MSG). 같은 페이지에 다시 넣으면 여백만 새로 맞춘다
+const WEB_TINT_MSG = "__lg_tint:";
+const WEB_PAGE_SCRIPT = `(() => {
+  window.__lgInset = __LG_INSET__;
+  if (window.__lgGS) { window.__lgGS(); return; }
+  const root = document.documentElement;
+  // 화면 위쪽에 붙는 고정·스티키 요소를 여백만큼 내린다. 고정 요소는 탭 줄 아래 FIX_BAND(px)까지 찾는다: 맨 위 띠만 보면
+  // 유튜브처럼 상단 바 밑에 붙는 고정 요소(왼쪽 메뉴·칩 줄)가 제자리에 남아 내려온 상단 바와 겹쳤다 (사용자 지적).
+  // 페이지 스크립트가 직접 자리를 정하는 요소(인라인 top, 툴팁·팝업)는 건드리지 않는다. 스티키는 화면 맨 위에 붙은 것만
+  const FIX_BAND = 300;
+  const fixTop = (reset) => {
+    const X = window.__lgInset || 0;
+    if (reset) {
+      document.querySelectorAll("[data-lg-top]").forEach((e) => { e.style.removeProperty("top"); delete e.dataset.lgTop; });
+      return;
+    }
+    if (!X) return;
+    const seen = new Set();
+    const w = window.innerWidth;
+    const ys = [1, Math.max(1, X - 1)];
+    for (let y = X + 4; y < X + FIX_BAND && y < window.innerHeight; y += 24) ys.push(y);
+    for (const fx of [0.02, 0.15, 0.3, 0.5, 0.7, 0.85, 0.98]) {
+      for (const y of ys) {
+        for (const el of document.elementsFromPoint(w * fx, y)) {
+          for (let e = el; e && e !== root && e !== document.body; e = e.parentElement) {
+            if (seen.has(e)) break;
+            seen.add(e);
+            const cs = getComputedStyle(e);
+            const fixed = cs.position === "fixed";
+            if (!fixed && cs.position !== "sticky") continue;
+            if (e.dataset.lgTop === undefined) {
+              if (e.style.top) continue;
+              if (!fixed && y > X) continue;
+              const t = parseFloat(cs.top);
+              if (!isFinite(t)) continue;
+              e.dataset.lgTop = String(t);
+            }
+            const v = (parseFloat(e.dataset.lgTop) + X) + "px";
+            // 같은 값이면 다시 쓰지 않는다 (쓰면 문서 변화 감시가 다시 불려 끝없이 돈다)
+            if (e.style.getPropertyValue("top") !== v || e.style.getPropertyPriority("top") !== "important") e.style.setProperty("top", v, "important");
+          }
+        }
+      }
+    }
+  };
+  // 반투명 배경은 건너뛴다: 그 색을 쓰면 탭 줄 버튼·글자 색까지 반투명해져 맨 위로 올렸을 때 사라졌다 (사용자 지적)
+  const alpha = (c) => {
+    const m = /\\/\\s*([\\d.]+)(%?)\\s*\\)$/.exec(c) || /^rgba\\([^)]*,\\s*([\\d.]+)(%?)\\s*\\)$/.exec(c);
+    return m ? parseFloat(m[1]) / (m[2] ? 100 : 1) : 1;
+  };
+  const clear = (bg) => !bg || bg === "transparent" || alpha(bg) < 0.95;
+  // 페이지 배경색: html, 없으면 body 배경 (사용자 요청: 대표 색(theme-color)보다 자연스럽다).
+  // 둘 다 투명이면 브라우저 기본 바탕(라이트 흰색, 다크 색 체계면 Chromium 기본 #121212)
+  const color = () => {
+    for (const el of [root, document.body]) {
+      const bg = el && getComputedStyle(el).backgroundColor;
+      if (!clear(bg)) return bg;
+    }
+    const dark = /dark/.test(getComputedStyle(root).colorScheme) && matchMedia("(prefers-color-scheme: dark)").matches;
+    return dark ? "#121212" : "#ffffff";
+  };
+  let last = null;
+  const report = () => {
+    const c = color();
+    if (c !== last) { last = c; console.log("${WEB_TINT_MSG}" + c); }
+  };
+  let raf = 0;
+  let timer = 0;
+  const tick = () => { raf = 0; fixTop(false); report(); };
+  const soon = () => { if (!raf) raf = requestAnimationFrame(tick); };
+  const later = () => { clearTimeout(timer); timer = setTimeout(tick, 250); };
+  addEventListener("scroll", soon, { passive: true, capture: true });
+  addEventListener("resize", soon);
+  new MutationObserver(later).observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+  // 페이지 스크롤바가 탭 줄 뒤까지 올라가지 않게 위 끝을 여백만큼 내린다 (사용자 지적). 스크롤바 위치는 기본 스크롤바에선 못 바꿔,
+  // 사이트가 따로 꾸미지 않았으면 얇은 반투명 스크롤바로 바꾼다(:where 라 사이트 꾸밈이 이긴다)
+  const sheet = () => {
+    let st = document.getElementById("lg-gs-style");
+    if (!st) { st = document.createElement("style"); st.id = "lg-gs-style"; (document.head || root).appendChild(st); }
+    const X = window.__lgInset || 0;
+    st.textContent = X ? ":where(html)::-webkit-scrollbar{width:12px;height:12px;background:transparent}" +
+      ":where(html)::-webkit-scrollbar-thumb{background-color:rgba(128,128,128,.45);border:3px solid transparent;background-clip:padding-box;border-radius:8px}" +
+      ":where(html)::-webkit-scrollbar-thumb:hover{background-color:rgba(128,128,128,.7)}" +
+      ":where(html)::-webkit-scrollbar-track,:where(html)::-webkit-scrollbar-corner{background:transparent}" +
+      "html::-webkit-scrollbar-track{margin-top:" + X + "px !important}" : "";
+  };
+  window.__lgGS = (reset) => {
+    const X = window.__lgInset || 0;
+    if (X) {
+      root.style.setProperty("padding-top", X + "px", "important");
+      root.style.setProperty("scroll-padding-top", X + "px", "important");
+    } else {
+      root.style.removeProperty("padding-top");
+      root.style.removeProperty("scroll-padding-top");
+    }
+    sheet();
+    fixTop(true);
+    if (!reset) { last = null; tick(); }
+  };
+  window.__lgGS();
+})();`;
+// 탭에 보일 도메인 (www. 는 뺀다)
+// 주소가 없거나 웹 주소가 아니면(빈 탭의 about:blank 등) 도메인 대신 웹 뷰어 탭 이름을 보인다 (사용자 지적: 비거나 about:blank 가 보였다)
+const webHost = (view) => {
+  const url = view && view.url;
+  try {
+    const u = new URL(url);
+    if (/^https?:$/.test(u.protocol) && u.hostname) return u.hostname.replace(/^www\./, "");
+  } catch (e) {
+    /* 주소가 아니다 */
+  }
+  return (view && typeof view.getDisplayText === "function" && view.getDisplayText()) || "";
+};
+
+// 다크 모드에서 웹 페이지 배경색에 섞는 검정 비율 (사용자 요청: 흰 페이지여도 탭 줄이 눈부시지 않게).
+// 밝은 색에만 섞는다 (사용자 요청): OKLab 명도 WEB_DARK_DIM_FROM 부터 섞기 시작해 흰색(1)에서 WEB_DARK_DIM 까지 늘린다.
+// 기준에서 한꺼번에 섞으면 기준 바로 위 색이 바로 아래 색보다 어두워져 순서가 뒤집힌다
+const WEB_DARK_DIM = 0.5;
+const WEB_DARK_DIM_FROM = 0.6;
+
+// CSS 색을 검정 쪽으로 k 만큼 섞은 rgb(). 캔버스로 sRGB 로 바꾼다
+function colorDim(c, k, doc) {
+  try {
+    if (!lightCanvas) lightCanvas = (doc || document).createElement("canvas").getContext("2d", { willReadFrequently: true });
+    const ctx = lightCanvas;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = "#000";
+    ctx.fillStyle = c;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    const f = (v) => Math.round(v * (1 - k));
+    return `rgb(${f(r)}, ${f(g)}, ${f(b)})`;
+  } catch (e) {
+    return c;
+  }
+}
+
+// 웹 탭 줄 유리를 라이트·다크 사이에서 섞는 명도 구간 (OKLab). 명도 전 구간에 비례해 섞는다 (사용자 요청, 예전엔 0.45~0.8 에서만 섞었다)
+const GLASS_MIX_LO = 0;
+const GLASS_MIX_HI = 1;
+
+// CSS 색의 OKLab 명도(0~1). 어떤 색 표기든 캔버스로 sRGB 로 바꿔 계산한다
+let lightCanvas = null;
+function colorLightness(c, doc) {
+  try {
+    if (!lightCanvas) lightCanvas = (doc || document).createElement("canvas").getContext("2d", { willReadFrequently: true });
+    const ctx = lightCanvas;
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = "#000";
+    ctx.fillStyle = c;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    const lin = (v) => ((v /= 255) <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+    const R = lin(r), G = lin(g), B = lin(b);
+    const l = Math.cbrt(0.4122214708 * R + 0.5363325363 * G + 0.0514459929 * B);
+    const mm = Math.cbrt(0.2119034982 * R + 0.6806995451 * G + 0.1073969566 * B);
+    const s = Math.cbrt(0.0883024619 * R + 0.2817188376 * G + 0.6299787005 * B);
+    return 0.2104542553 * l + 0.793617785 * mm - 0.0040720468 * s;
+  } catch (e) {
+    return null;
+  }
+}
+
 // CSS 색 값(var() 포함)을 [r, g, b] 로 푼다
 function resolveRgb(doc, value) {
   const el = doc.createElement("div");
@@ -147,6 +318,7 @@ const DEFAULTS = {
   hoverLarge: false,
   // 탭 줄 첫 줄에 지금 문서의 "폴더 / 파일" 경로를 보이고, 탭은 둘째 줄로 내린다
   showPath: true,
+  webTint: true,
   // 편집창을 아래로 스크롤하면 탭 줄을 접고 문서 제목만 작게 남긴다 (사파리식)
   miniBar: true,
   // Obsidian 팝업(대화상자·명령 팔레트·미리보기·알림 등): false = 메뉴만큼 비침, true = 꽉 채움
@@ -182,6 +354,8 @@ const DEFAULTS = {
   headingRule: false,
   // 파일 탐색기 줄무늬
   fileStripes: false,
+  // 모바일 파일 탐색기 줄 위아래 간격 좁게 (CSS: body.lg-nav-compact)
+  navCompact: false,
 };
 
 // 예전 "이 기기만 따로 설정"(삭제, 사용자 요청)이 이 기기 저장소(localStorage)에 쓰던 키. 남은 값을 지우는 데만 쓴다
@@ -246,6 +420,13 @@ const DRAG_SCROLL_MAX = 14; // 끝에 붙었을 때 한 프레임 스크롤 양(
 const TASK_PRESS_MS = 260; // 할 일 체크박스를 누르면 작아졌다 되돌아오는 시간
 const MENU_MOVE_MS = 320; // 같은 대상을 다시 우클릭했을 때 메뉴가 새 자리로 옮겨 가는 시간
 
+// 요소의 아래 끝 (누름 효과로 커지는 중이어도 원래 크기 기준). 메뉴를 버튼 밑에 열 때 쓴다:
+// 화면 크기로 재면 누르는 순간의 크기라 메뉴 높이가 버튼마다 조금씩 달랐다 (사용자 지적)
+function layoutBottom(el) {
+  const r = el.getBoundingClientRect();
+  return r.top + r.height / 2 + el.offsetHeight / 2;
+}
+
 // from → to 방향의 단위 벡터
 function unitVec(fx, fy, tx, ty) {
   const l = Math.hypot(tx - fx, ty - fy) || 1;
@@ -266,6 +447,7 @@ const MENU_RIPPLE_FROM = 0.5;
 const TAB_RIPPLE_K = 16;
 const PRESS_RIPPLE = [
   ".lg-kb-group .clickable-icon",
+  ".lg-tab-tools .clickable-icon",
   ".lg-tab-nav .clickable-icon",
   ".lg-nav-run .clickable-icon",
   ".lg-path-pill .clickable-icon",
@@ -275,11 +457,16 @@ const PRESS_RIPPLE = [
 ].join(", ");
 
 // 버튼이 든 컨테이너 알약
-const PRESS_PILL = ".lg-kb-group, .lg-tab-nav, .lg-nav-run, .lg-path-pill, .side-dock-actions, .side-dock-settings, .workspace-tab-header-container-inner, .titlebar-button-container.mod-right, .workspace-drawer-vault-switcher";
+const PRESS_PILL = ".lg-kb-group, .lg-tab-tools, .lg-tab-nav, .lg-nav-run, .lg-path-pill, .side-dock-actions, .side-dock-settings, .workspace-tab-header-container-inner, .titlebar-button-container.mod-right, .workspace-drawer-vault-switcher";
+
+// 버튼 묶음 알약: 누를 때 커지는 정도를 줄인다 (GROUP_PRESS_K 배, 사용자 요청)
+const PRESS_GROUP = ".lg-kb-group, .lg-tab-tools, .lg-tab-nav, .lg-nav-run, .lg-path-pill";
+const GROUP_PRESS_K = 0.5;
 
 // 클릭 효과: 커졌다가 줄어든다 (패널 탭, 뒤로·앞으로, 리본, 창 제어)
 const PRESS_SCALE = [
   ".lg-kb-group .clickable-icon",
+  ".lg-tab-tools .clickable-icon",
   ".lg-tab-nav .clickable-icon",
   ".lg-nav-run .clickable-icon",
   ".lg-path-pill .clickable-icon",
@@ -340,7 +527,7 @@ const REFRACT_TARGETS = [
   [".mod-root .workspace-tab-header-new-tab .clickable-icon, .mod-root .workspace-tab-header-tab-list .clickable-icon", 32],
   [".sidebar-toggle-button .clickable-icon, .workspace-drawer-vault-actions .clickable-icon", 32],
   [".graph-controls.is-close .graph-controls-button", 32],
-  [".lg-tab-nav, .lg-nav-run, .lg-path-pill, .side-dock-actions, .workspace-drawer-vault-switcher, .status-bar, .lg-kb-group", 26],
+  [".lg-tab-nav, .lg-nav-run, .lg-path-pill, .side-dock-actions, .workspace-drawer-vault-switcher, .status-bar, .lg-kb-group, .lg-tab-tools", 26],
   [".mod-left-split .workspace-tab-header-container-inner, .mod-right-split .workspace-tab-header-container-inner", 26],
   [".mod-root .workspace-tab-header-container .workspace-tab-header.is-active", 23],
   [".titlebar-button-container.mod-right", 26],
@@ -461,6 +648,8 @@ module.exports = class GlassShelfPlugin extends Plugin {
     this.segWatched = new WeakSet();
     this.tabsWatched = new WeakSet();
     this.observers = [];
+    // 칸반 보드에서 이미 지켜보는 요소들. 요소에 표시를 남기면 플러그인을 껐다 켰을 때 표시만 남고 감시는 끊겨 다시 붙지 않으므로 여기 둔다
+    this.kbWatched = new WeakSet();
     this.docs = new Set();
     this.refractor = new Refractor();
     this.attachDoc(document);
@@ -533,22 +722,25 @@ module.exports = class GlassShelfPlugin extends Plugin {
     this.register(() => document.querySelectorAll(".workspace-tabs.lg-mini").forEach((t) => t.classList.remove("lg-mini")));
     this.registerEvent(this.app.workspace.on("window-open", (win) => win && win.doc && this.attachDoc(win.doc)));
 
-    // 설정 창은 별도 창(다른 document)으로 뜬다. 열려 있으면 그 창에도 같은 동작을 붙인다
-    this.registerInterval(
-      window.setInterval(() => {
-        const st = this.app.setting;
-        const cands = [
-          st && st.popout && st.popout.win && st.popout.win.document,
-          st && st.containerEl && st.containerEl.isConnected && st.containerEl.ownerDocument,
-          typeof activeDocument !== "undefined" && activeDocument,
-        ];
-        for (const d of cands) if (d && d.body) this.attachDoc(d);
-        for (const d of this.docs) this.modalRefract(d);
-        if (!Platform.isPhone) this.app.workspace.getLeavesOfType("kanban").forEach((l) => this.setupKanban(l.view));
-        // 닫힌 창은 목록에서 뺀다
-        for (const d of this.docs) if (d !== document && (!d.defaultView || d.defaultView.closed)) this.docs.delete(d);
-      }, 500)
-    );
+    // 설정 창은 별도 창(다른 document)으로 뜰 수 있다. 열려 있으면 그 창에도 같은 동작을 붙인다.
+    // Obsidian 은 설정 창이 열릴 때 알려 주지 않아 예전엔 0.5초마다 찾았다. 별도 창이 뜨면 메인 창이 포커스를 잃으므로
+    // 그때(창이 준비되는 동안 몇 번) 찾는다: 버튼·단축키·명령 팔레트 등 여는 방법과 상관없다 (사용자 요청: 상시 감시 없애기).
+    // 앱 안에 뜨는 설정 창은 메인 창 문서라 이미 붙어 있고, 검색창 굴절은 창이 붙을 때(modal-container) 건다
+    const findSettings = () => {
+      const st = this.app.setting;
+      const cands = [
+        st && st.popout && st.popout.win && st.popout.win.document,
+        st && st.containerEl && st.containerEl.isConnected && st.containerEl.ownerDocument,
+      ];
+      for (const d of cands) if (d && d.body) this.attachDoc(d);
+      for (const d of this.docs) this.modalRefract(d);
+      // 닫힌 창은 목록에서 뺀다
+      for (const d of this.docs) if (d !== document && (!d.defaultView || d.defaultView.closed)) this.docs.delete(d);
+    };
+    findSettings();
+    this.registerDomEvent(window, "blur", () => {
+      for (const t of [60, 300, 1000]) window.setTimeout(findSettings, t);
+    });
   }
 
   // 설정 창 검색창 굴절 (사용자 요청). 설정 창은 별도 창으로도 떠서 refresh() 가 보지 않으므로 창마다 따로 건다.
@@ -830,8 +1022,13 @@ module.exports = class GlassShelfPlugin extends Plugin {
         }
         const kbAdd = e.target.closest(".kanban-plugin__new-item-button");
         if (kbAdd) return this.pressKanbanAdd(kbAdd);
+        // 칸반 목록 추가 창의 버튼(목록 추가·취소): 다른 알약처럼 커지며 하얘졌다 돌아온다 (사용자 요청)
+        const laneBtn = e.target.closest(".kanban-plugin__lane-input-actions button");
+        if (laneBtn) return this.pressPill(laneBtn);
         if (Platform.isMobile && this.pressMobile(e.target)) return;
-        const pop = e.target.closest(PRESS_POP);
+        // 탭 줄 오른쪽 묶음(.lg-tab-tools) 안의 +·목록·읽기 모드는 단독 버튼이 아니라 알약 안 버튼이다
+        const pop0 = e.target.closest(PRESS_POP);
+        const pop = pop0 && !pop0.closest(".lg-tab-tools") ? pop0 : null;
         // 칸반 검색 버튼: 흰 빛이 열리는(닫히는) 쪽으로 퍼진다
         const kbSearch = e.target.closest(".lg-kb-search-btn");
         if (kbSearch) return this.pressKbSearch(kbSearch);
@@ -888,6 +1085,96 @@ module.exports = class GlassShelfPlugin extends Plugin {
       },
       { capture: true, passive: true }
     );
+    // 드롭다운(select.dropdown): 운영체제 목록 대신 Obsidian 메뉴로 열어 보관함 전환 메뉴처럼 드롭다운에서 넓어지게 한다 (사용자 요청).
+    // 모바일(사용자 요청): 운영체제 고르기 화면은 손을 뗄 때(click) 뜨므로, 움직이지 않고 뗀 탭이면 touchend 를 막아 click 이 생기지 않게 하고
+    // 그때 메뉴를 연다. 끌어서 스크롤한 것은 그대로 둔다. 휴대폰은 Obsidian 메뉴가 아래에서 올라오는 시트로 뜬다
+    const openSelect = (sel) => {
+      lastPress = { x: 0, y: 0, t: win.performance.now(), target: sel };
+      this.openDropdownMenu(sel);
+    };
+    // 누를 때(mousedown)는 운영체제 목록만 막고, 메뉴는 뗀 뒤(click) 연다: 누를 때 열면 떼는 순간 메뉴 바깥 누름으로 보고 닫혔다 (사용자 지적).
+    // 메뉴가 열린 채 드롭다운을 다시 누르면 그 누름에 메뉴가 닫히므로, 이어지는 click 에 다시 열지 않는다
+    this.registerDomEvent(
+      doc,
+      "mousedown",
+      (e) => {
+        if (Platform.isMobile || e.button !== 0 || !isEl(e.target)) return;
+        const sel = e.target.closest("select.dropdown");
+        if (!sel || sel.disabled) return;
+        e.preventDefault();
+        sel.lgSkipClick = sel.classList.contains("has-active-menu");
+      },
+      { capture: true }
+    );
+    this.registerDomEvent(
+      doc,
+      "click",
+      (e) => {
+        if (Platform.isMobile || e.button !== 0 || !isEl(e.target)) return;
+        const sel = e.target.closest("select.dropdown");
+        if (!sel || sel.disabled) return;
+        e.preventDefault();
+        if (sel.lgSkipClick || sel.classList.contains("has-active-menu")) {
+          sel.lgSkipClick = false;
+          return;
+        }
+        win.setTimeout(() => openSelect(sel), 0);
+      },
+      { capture: true }
+    );
+    if (Platform.isMobile) {
+      let touch = null;
+      this.registerDomEvent(
+        doc,
+        "touchstart",
+        (e) => {
+          const t = e.touches[0];
+          const sel = isEl(e.target) && e.target.closest("select.dropdown");
+          touch = sel && !sel.disabled && e.touches.length === 1 ? { sel, x: t.clientX, y: t.clientY } : null;
+        },
+        { capture: true, passive: true }
+      );
+      this.registerDomEvent(
+        doc,
+        "touchend",
+        (e) => {
+          const p = touch;
+          touch = null;
+          const t = e.changedTouches[0];
+          if (!p || !t || Math.hypot(t.clientX - p.x, t.clientY - p.y) > 10) return;
+          if (!isEl(e.target) || e.target.closest("select.dropdown") !== p.sel) return;
+          e.preventDefault();
+          if (!p.sel.classList.contains("has-active-menu")) openSelect(p.sel);
+        },
+        { capture: true }
+      );
+      // 그래도 click 이 오면(마우스·펜 등) 운영체제 화면 대신 메뉴로
+      this.registerDomEvent(
+        doc,
+        "click",
+        (e) => {
+          const sel = isEl(e.target) && e.target.closest("select.dropdown");
+          if (!sel || sel.disabled) return;
+          e.preventDefault();
+          if (!sel.classList.contains("has-active-menu")) openSelect(sel);
+        },
+        { capture: true }
+      );
+    }
+    this.registerDomEvent(
+      doc,
+      "keydown",
+      (e) => {
+        if (Platform.isMobile || !isEl(e.target) || !e.target.matches("select.dropdown")) return;
+        const sel = e.target;
+        if (sel.disabled || sel.classList.contains("has-active-menu")) return;
+        if (e.key === " " || e.key === "Enter" || (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp"))) {
+          e.preventDefault();
+          openSelect(sel);
+        }
+      },
+      { capture: true }
+    );
     // 태블릿의 길게 누르기(우클릭 메뉴)는 누른 지 한참 뒤에 메뉴가 떠 누른 기록이 오래된다. 메뉴를 부른 순간을 누른 때로 다시 적는다
     this.registerDomEvent(
       doc,
@@ -914,6 +1201,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
             if (!Platform.isPhone) this.setupMenu(n, lastPress);
           }
           else if (isEl(n) && n.classList.contains("mod-search-suggestion")) this.attachSearchSuggest(n, doc);
+          else if (isEl(n) && n.classList.contains("suggestion-container")) this.attachWebSuggest(n, doc);
           else if (isEl(n) && n.classList.contains("modal-container")) this.modalRefract(doc);
         }
         for (const n of r.removedNodes) if (isMenu(n) && !Platform.isPhone) this.closeMenu(n, doc);
@@ -970,6 +1258,26 @@ module.exports = class GlassShelfPlugin extends Plugin {
     this.registerDomEvent(doc, "change", (e) => {
       if (isEl(e.target)) onToggle(e.target.closest(".checkbox-container"));
     });
+    // 안에 체크박스가 없는 토글(Kanban 목록 추가 창·보드 설정 등): 누르면 표시(is-enabled)만 바꿔 change 가 없다.
+    // 그래서 꾹 누를 때(테마 :active)만 렌즈가 보였다 (사용자 지적). 누른 뒤 표시가 바뀌는 것을 잠깐(0.5초) 지켜보다 그때 애니메이션을 건다
+    this.registerDomEvent(
+      doc,
+      "click",
+      (e) => {
+        if (!isEl(e.target)) return;
+        const c = e.target.closest(".checkbox-container");
+        if (!c || c.querySelector("input")) return;
+        const was = c.classList.contains("is-enabled");
+        const mo = new win.MutationObserver(() => {
+          if (c.classList.contains("is-enabled") === was) return;
+          mo.disconnect();
+          onToggle(c);
+        });
+        mo.observe(c, { attributes: true, attributeFilter: ["class"] });
+        win.setTimeout(() => mo.disconnect(), 500);
+      },
+      { capture: true, passive: true }
+    );
 
     // 슬라이더: CSS 는 값을 읽지 못하므로 채움 비율(--lg-sl-n, 0~1)을 넣어 준다.
     // 끌 때는 input, 새로 그려질 때는 테마가 거는 짧은 애니메이션(lg-sl-born)의 시작으로 안다
@@ -1063,7 +1371,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
         const t0 = win.performance.now();
         let cur = cb;
         cb.lgTaskDone = false;
-        // 누름: 작아졌다가 되돌아온다. 편집기가 체크박스를 바꿔 끼우면 새것에서 이어서 (아래 tick).
+        // 누름: 작아졌다가 되돌아온다. 편집기가 체크박스를 바꿔 끼우면 새것에서 이어서 (아래 step).
         // transform 으로 걸어 CSS 의 커짐(scale)·끌림(translate)과 곱해진다
         const press = (el, at) => {
           const p = el.animate([{ transform: "scale(1)" }, { transform: "scale(0.82)", offset: 0.35 }, { transform: "scale(1)" }], { duration: TASK_PRESS_MS, easing: "cubic-bezier(0.3, 0, 0.3, 1)" });
@@ -1072,9 +1380,21 @@ module.exports = class GlassShelfPlugin extends Plugin {
         press(cb, 0);
         // 마우스로 눌렀으면 커서가 위에 있다 (편집기가 체크박스를 새로 그려 바꾸면 새것은 커서가 움직이기 전까지 :hover 가 아니다)
         const hov = e.detail > 0 && (!e.pointerType || e.pointerType === "mouse");
+        // 바뀔 상태는 누른 순간(클릭 처리 앞)의 값으로 정한다. 편집 모드 콜아웃 등은 Obsidian 이 클릭을 막아 체크박스를 원래대로 되돌리고
+        // 문서를 고쳐 다시 그리는데, 다음 프레임에 체크 상태를 읽으면 되돌려진 값이라 끌 때 켜는 애니메이션이 나왔다 (사용자 지적)
+        const want = cb.checked;
         // 끌 때는 누른 순간부터 호버 유리를 숨긴다 (애니메이션은 다음 프레임에 시작해, 그 사이 호버가 먼저 나타났다)
-        if (!cb.checked && hov) cb.classList.add("lg-task-hold");
-        const tick = () => {
+        if (!want && hov) cb.classList.add("lg-task-hold");
+        // 눌린 체크박스에서 숨김을 반드시 걷어 낸다: 편집기·읽기 보기가 체크박스를 바꿔 끼우면 애니메이션은 새것에서 돌고 이것은 숨긴 채 남는데,
+        // 같은 것이 다시 쓰이면(콜아웃 등) 그 뒤로 호버 유리가 영영 안 보였다 (사용자 지적, 원인은 추정)
+        if (!want && hov) win.setTimeout(() => cb.classList.remove("lg-task-hold"), 600);
+        // 바꿔 끼워진 체크박스 찾기: 문서가 바뀌는 즉시(MutationObserver, 그리는 것보다 먼저) 찾는다.
+        // 프레임으로만 찾으면 새것이 아무 효과 없는 모습으로 한 번 그려진 뒤에 애니메이션이 붙어, 읽기 모드에서 끌 때
+        // 링이 사라졌다 다시 나타나 두 번 재생되는 것처럼 보였다 (사용자 영상). 편집 모드 콜아웃은 한참 뒤에 다시 그려지기도 해
+        // 최대 1.6초 지켜본다. 0.6초가 지난 뒤 나타난 것은 애니메이션 없이 호버 모양만 붙인다.
+        // 예전엔 1.5초 동안 매 프레임도 확인했는데, 문서 감시는 문서가 바뀔 때만 깨어나므로 그것만 둔다 (사용자 요청: 더 가볍게).
+        // 누른 것의 애니메이션은 다음 프레임에 한 번 시작하고, 새것을 처리하면 감시를 바로 끝낸다
+        const step = () => {
           const elapsed = win.performance.now() - t0;
           if (!cur.isConnected) {
             const hit = doc.elementFromPoint(x, y);
@@ -1084,13 +1404,30 @@ module.exports = class GlassShelfPlugin extends Plugin {
               if (elapsed < TASK_PRESS_MS) press(cur, elapsed);
             }
           }
-          if (cur.isConnected && !cur.lgTaskDone) {
+          // 누른 것은 되돌려졌어도 바뀔 상태로 재생하고, 새로 그려진 것은 바뀐 상태로 그려졌을 때만 이어서 재생한다
+          // (아직 예전 상태로 그려진 것이면 다음 것을 기다린다)
+          if (cur.isConnected && !cur.lgTaskDone && (cur === cb || cur.checked === want)) {
             cur.lgTaskDone = true;
-            this.animateTask(cur, cur.checked, elapsed, hov);
+            if (cur !== cb) mo.disconnect();
+            if (cur === cb || elapsed < 600) this.animateTask(cur, want, elapsed, hov);
+            // 새로 그려진 체크박스는 커서가 위에 있어도 마우스가 움직이기 전까지 :hover 가 아니라, 끈 뒤 한동안 아무것도 없다가
+            // 호버 유리가 나타났다 (사용자 지적). 마우스가 움직일 때까지 호버 모양을 붙여 둔다 (CSS: .lg-task-hov)
+            if (cur !== cb && hov) {
+              const el = cur;
+              el.classList.add("lg-task-hov");
+              const off = () => {
+                el.classList.remove("lg-task-hov");
+                doc.removeEventListener("pointermove", off, true);
+              };
+              doc.addEventListener("pointermove", off, true);
+              win.setTimeout(off, 3000);
+            }
           }
-          if (elapsed < 600) win.requestAnimationFrame(tick);
         };
-        win.requestAnimationFrame(tick);
+        const mo = new win.MutationObserver(step);
+        mo.observe(doc.body, { childList: true, subtree: true });
+        win.setTimeout(() => mo.disconnect(), 1600);
+        win.requestAnimationFrame(step);
       },
       true
     );
@@ -1186,8 +1523,9 @@ module.exports = class GlassShelfPlugin extends Plugin {
       const r = pill.getBoundingClientRect();
       // 효과 없음 모드의 패널 탭은 다른 알약과 같은 값으로 커지고 하얘진다 (사용자 요청)
       const tab = el.matches(".workspace-tab-header") && this.settings.tabAnim !== "none";
-      // 패널 탭 줄은 커지는 정도를 TAB_PRESS_K 배로 줄인다 (사용자 요청)
-      const k = 1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1)) * (tab ? TAB_PRESS_K : 1);
+      // 패널 탭 줄은 커지는 정도를 TAB_PRESS_K 배로, 버튼 묶음 알약은 GROUP_PRESS_K 배로 줄인다 (사용자 요청)
+      const group = pill.matches(PRESS_GROUP);
+      const k = 1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1)) * (tab ? TAB_PRESS_K : group ? GROUP_PRESS_K : 1);
       const opt = { duration: 570, easing: EASE.press };
       pill.animate([{ offset: 0.34, scale: k.toFixed(3) }, { offset: 0.46, scale: k.toFixed(3) }], opt);
       // 패널 탭은 커졌다 줄어들기만 한다 (흰 빛 없음)
@@ -1207,20 +1545,30 @@ module.exports = class GlassShelfPlugin extends Plugin {
     if (acts) {
       this.groupKanbanActions(acts);
       // Kanban 은 보드 설정이 바뀌면 버튼을 지우고 다시 단다
-      if (!acts.lgKbObs) {
+      if (!this.kbWatched.has(acts)) {
         const win = acts.ownerDocument.defaultView || window;
         const obs = new win.MutationObserver(() => this.groupKanbanActions(acts));
         obs.observe(acts, { childList: true });
-        acts.lgKbObs = obs;
+        this.kbWatched.add(acts);
         this.observers.push(obs);
       }
     }
+    // Kanban 은 파일을 읽은 뒤 보드를 그리고, 다시 읽으면 보드를 새로 그린다. 화면 배치가 바뀔 때(refresh)만 붙이면 그보다 늦게 그려진
+    // 보드를 놓치므로, 보기 안 바로 아래 자식이 바뀌면 다시 붙인다 (예전엔 0.5초마다 다시 붙였다, 사용자 요청으로 바꿈)
+    const content = view.contentEl;
+    if (content && !this.kbWatched.has(content)) {
+      const win = content.ownerDocument.defaultView || window;
+      const watch = new win.MutationObserver(() => this.setupKanban(view));
+      watch.observe(content, { childList: true });
+      this.kbWatched.add(content);
+      this.observers.push(watch);
+    }
     const board = root.querySelector(".kanban-plugin");
-    if (board && !board.lgKbObs) {
+    if (board && !this.kbWatched.has(board)) {
       const win = board.ownerDocument.defaultView || window;
       const obs = new win.MutationObserver(() => this.kanbanSearch(root, board));
       obs.observe(board, { childList: true });
-      board.lgKbObs = obs;
+      this.kbWatched.add(board);
       this.observers.push(obs);
       this.kanbanSearch(root, board);
       const formObs = new win.MutationObserver((ms) => {
@@ -1452,25 +1800,60 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const win = wrap.ownerDocument.defaultView || window;
     const h0 = lane.offsetHeight;
     const w0 = lane.offsetWidth;
+    const ww0 = wrap.offsetWidth;
     const opening = wrap.matches(".collapse-vertical, .collapse-horizontal");
     const obs = new win.MutationObserver(() => {
       obs.disconnect();
       const ln = wrap.querySelector(":scope > .kanban-plugin__lane");
       if (!ln) return;
-      const h1 = ln.offsetHeight;
-      const w1 = ln.offsetWidth;
-      const opt = { duration: KB_LANE_MS, easing: MINI_EASE };
-      const frames = h0 !== h1 ? [{ height: `${h0}px` }, { height: `${h1}px` }] : w0 !== w1 ? [{ width: `${w0}px` }, { width: `${w1}px` }] : null;
-      if (!frames) return;
+      // Kanban 은 접힘 표시를 바꾼 뒤에도 목록 안(세로 제목 등)을 조금 늦게 그린다. 표시가 바뀐 즉시 재면 다 그려지기 전 크기라,
+      // 그 크기까지 움직인 뒤 높이가 한 번 더 툭 늘어났다 (사용자 영상). 예전 크기로 잠깐 붙잡아 두고(그동안 화면은 예전 크기),
+      // 두 프레임 뒤 다 그려진 크기를 재서 그때부터 움직인다
+      const holdOpt = { duration: 1000, fill: "forwards" };
+      const holdLn = ln.animate([{ width: `${w0}px`, height: `${h0}px` }, { width: `${w0}px`, height: `${h0}px` }], holdOpt);
+      const holdWrap = wrap.animate([{ width: `${ww0}px`, minWidth: "0px" }, { width: `${ww0}px`, minWidth: "0px" }], holdOpt);
       ln.classList.add("lg-clip");
-      const a = ln.animate(frames, opt);
-      const done = () => ln.classList.remove("lg-clip");
-      a.onfinish = done;
-      a.oncancel = done;
-      if (opening) Array.from(ln.children).slice(1).forEach((k) => k.animate([{ opacity: 0 }, { opacity: 1 }], opt));
+      const head = ln.querySelector(".kanban-plugin__lane-header-wrapper");
+      const run = () => {
+        holdLn.cancel();
+        holdWrap.cancel();
+        const h1 = ln.offsetHeight;
+        const w1 = ln.offsetWidth;
+        const ww1 = wrap.offsetWidth;
+        const opt = { duration: KB_LANE_MS, easing: MINI_EASE };
+        // 옆으로 늘어선 목록(가로 보드)을 접으면 Kanban 이 목록 칸(wrapper) 폭을 좁히고 제목을 세로로 세운다 (사용자 지적: 폭이 한 번에 바뀌었다).
+        // 칸 폭과 목록 폭·높이를 함께 움직이고, 제목 줄은 모양이 바뀌므로 흐려졌다 다시 나타난다
+        const sideways = ww0 !== ww1;
+        const a = ln.animate([{ width: `${w0}px`, height: `${h0}px` }, { width: `${w1}px`, height: `${h1}px` }], opt);
+        const done = () => ln.classList.remove("lg-clip");
+        a.onfinish = done;
+        a.oncancel = done;
+        // 칸은 자르지 않는다 (목록 유리판의 그림자가 잘린다)
+        if (sideways) {
+          wrap.animate([{ width: `${ww0}px`, minWidth: "0px" }, { width: `${ww1}px`, minWidth: "0px" }], opt);
+          const hd = ln.querySelector(".kanban-plugin__lane-header-wrapper") || head;
+          if (hd) hd.animate([{ opacity: 0 }, { opacity: 0, offset: 0.3 }, { opacity: 1 }], opt);
+        }
+        if (opening) Array.from(ln.children).slice(1).forEach((k) => k.animate([{ opacity: 0 }, { opacity: 1 }], opt));
+      };
+      // 붙잡은 동안 제목 줄은 숨겨 둔다 (모양이 바뀐 제목이 예전 크기 상자 안에 먼저 보이지 않게)
+      if (head) head.animate([{ opacity: 0 }, { opacity: 0 }], { duration: 60 });
+      win.requestAnimationFrame(() => win.requestAnimationFrame(run));
     });
     obs.observe(wrap, { attributes: true, attributeFilter: ["class"] });
     win.setTimeout(() => obs.disconnect(), 1000);
+  }
+
+  // 알약 버튼 하나를 누름: 크기에 맞춰 조금 커지고(최대 20%, 16px 만큼) 가장 클 때 하얘졌다 돌아온다
+  pressPill(btn) {
+    try {
+      const r = btn.getBoundingClientRect();
+      const k = (1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1))).toFixed(3);
+      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: "none" };
+      btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 570, easing: EASE.press });
+    } catch (err) {
+      console.error("[glass-shelf] press-pill", err);
+    }
   }
 
   // 칸반 카드 추가 버튼 (테마 Kanban 연동): 다른 알약처럼 커지며 하얘졌다 돌아온다 (사용자 요청).
@@ -1518,6 +1901,11 @@ module.exports = class GlassShelfPlugin extends Plugin {
         white = !el.matches(".workspace-drawer-tab-options-list") || this.settings.tabAnim === "none";
         dur = 570;
       }
+      // 설정 창 뒤로 버튼은 누르는 순간 커지며 사라진다 (backGhost)
+      if (el.matches(".modal-setting-back-button")) {
+        this.backGhost(el, k);
+        return true;
+      }
       const peak = { scale: k.toFixed(3) };
       if (white) Object.assign(peak, { backgroundColor: PRESS_WHITE, backgroundImage: "none" });
       el.animate([Object.assign({ offset: 0.34 }, peak), Object.assign({ offset: 0.46 }, peak)], {
@@ -1529,6 +1917,26 @@ module.exports = class GlassShelfPlugin extends Plugin {
       console.error("[glass-shelf] press-mobile", err);
       return false;
     }
+  }
+
+  // 설정 창 뒤로 버튼: 누르면 Obsidian 이 목록으로 돌아가며 버튼을 바로 숨겨, 누름 효과가 중간에 뚝 끊기고 사라졌다 (사용자 지적).
+  // 누르는 순간 그 자리에 같은 모양의 사본을 띄워 커지며 흐려지게 하고(사용자 요청), 원래 버튼은 그동안 투명하게 둔다.
+  // 버튼이 숨지 않고 남아 있으면(누름이 취소되는 등) 0.6초 뒤 다시 보인다
+  backGhost(el, k) {
+    const doc = el.ownerDocument;
+    const win = doc.defaultView || window;
+    const r = el.getBoundingClientRect();
+    const g = el.cloneNode(true);
+    g.removeAttribute("id");
+    g.classList.add("lg-back-ghost");
+    g.setCssProps({ "--lg-gx": `${r.left}px`, "--lg-gy": `${r.top}px`, "--lg-gw": `${r.width}px`, "--lg-gh": `${r.height}px` });
+    doc.body.appendChild(g);
+    el.classList.add("lg-back-hidden");
+    g.animate([{ scale: "1", opacity: 1 }, { scale: Number(k).toFixed(3), opacity: 0 }], { duration: 260, easing: "cubic-bezier(0.2, 0, 0.2, 1)", fill: "forwards" }).onfinish = () => g.remove();
+    win.setTimeout(() => {
+      g.remove();
+      el.classList.remove("lg-back-hidden");
+    }, 600);
   }
 
   // 검색 탭 검색창: 안의 내용까지 통째로 커졌다 돌아오고, 누른 자리 근처만 하얘진다
@@ -1614,6 +2022,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
     b.style.setProperty("--lg-frost", String((Math.max(0, g - 5) / 10) * 0.3));
     b.style.setProperty("--lg-hover-k", this.settings.hoverLarge ? "1" : "0");
     b.classList.toggle("lg-show-path", !!this.settings.showPath);
+    b.classList.toggle("lg-web-under", !!this.settings.webTint && !Platform.isPhone);
     b.classList.toggle("lg-mini-bar", !!this.settings.miniBar);
     b.classList.toggle("lg-pop-opaque", !!this.settings.popupOpaque);
     b.classList.toggle("lg-wc-compact", !!this.settings.compactWindowControls);
@@ -1633,6 +2042,8 @@ module.exports = class GlassShelfPlugin extends Plugin {
     b.classList.toggle("lg-tab-names", !!s.tabNames);
     // 헤더 밑 가로줄 (CSS: body.lg-hrule)
     b.classList.toggle("lg-hrule", !!s.headingRule);
+    // 모바일 파일 탐색기 줄 간격 (CSS: body.lg-nav-compact, 모바일에서만 효과)
+    b.classList.toggle("lg-nav-compact", !!s.navCompact);
     // 효과 없음 모드의 글자색은 테마가 강조색에서 바로 계산한다 (예전 값이 남아 있지 않게 지운다)
     b.style.removeProperty("--lg-tab-on-ink");
     // 할 일 체크박스 (CSS: body.lg-task-ring, --lg-task-color). 노랑은 테마 값(라이트·다크 각각)을 쓴다
@@ -1789,6 +2200,9 @@ module.exports = class GlassShelfPlugin extends Plugin {
       });
     }
 
+    // 모바일은 렌즈 그림자를 애니메이션하지 않는다: 매 프레임 바뀌는 넓은 그림자가 화면을 다시 그리게 해, 휴대폰 커뮤니티 창에서 토글을 누를 때
+    // 위쪽 버튼들이 깜빡였다 (사용자 지적, 그림자만 뺀 시험에서 거의 사라짐을 사용자가 확인). 굴절·채움·모양 변화는 그대로다
+    if (Platform.isMobile) for (const f of frames) delete f.boxShadow;
     const anim = c.animate(frames, { duration: 320, easing: "linear", pseudoElement: "::after" });
     const done = () => c.classList.remove("lg-tg-anim");
     anim.onfinish = done;
@@ -1937,8 +2351,20 @@ module.exports = class GlassShelfPlugin extends Plugin {
         while (g.firstChild) g.parentElement.insertBefore(g.firstChild, g);
       });
       doc.querySelectorAll(".lg-kb-searching").forEach((el) => el.classList.remove("lg-kb-searching"));
+      doc.querySelectorAll(".lg-tab-tools").forEach((g) => {
+        while (g.firstChild) g.parentElement.insertBefore(g.firstChild, g);
+      });
     }
+    if (this.webCard) this.closeWebCard(true);
+    this.webUninject();
     for (const doc of this.docs) if (doc.body) doc.querySelectorAll(".lg-path-text").forEach((el) => this.returnTitle(el));
+    for (const doc of this.docs) {
+      if (!doc.body) continue;
+      doc.querySelectorAll(".workspace-tabs").forEach((t) => {
+        if (t.lgWebTab) this.webTab(t, null, false);
+      });
+      doc.querySelectorAll(".lg-web-head").forEach((h) => h.classList.add("view-header-always-show"));
+    }
     for (const doc of this.docs) {
       if (!doc.body) continue;
       doc.querySelectorAll("." + INJECTED).forEach((el) => el.remove());
@@ -1984,6 +2410,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
       win.requestAnimationFrame(popSize);
     });
     const pressed = press && now - press.t < (Platform.isMobile ? 1500 : 600);
+    if (pressed) this.webPopTint(menu, press.target);
     const outside = pressed && !(isEl(press.target) && press.target.closest(".menu"));
     const sub = Array.from(doc.querySelectorAll(".menu")).some((m) =>
       m !== menu && !m.classList.contains("lg-menu-ghost") && !(outside && press.t > (m.lgBorn || 0)));
@@ -2006,7 +2433,9 @@ module.exports = class GlassShelfPlugin extends Plugin {
       }
     }
     const target = fresh && isEl(press.target) ? press.target : null;
-    const src = target && target.closest(".workspace-drawer-vault-switcher");
+    // 커뮤니티 찾기 창의 정렬 버튼도 그래프 뷰 설정처럼 버튼에서 넓어진다 (사용자 요청, 휴대폰은 Obsidian 그대로)
+    const morphSel = Platform.isPhone ? ".workspace-drawer-vault-switcher, select.dropdown" : ".workspace-drawer-vault-switcher, select.dropdown, .mod-community-modal .community-modal-search > .clickable-icon";
+    const src = target && target.closest(morphSel);
     // 버튼에서 넓어지는 메뉴는 준비될 때까지 숨긴다 (CSS: .lg-menu-morph)
     if (src) menu.classList.add("lg-menu-morph");
     const run = (tries) => {
@@ -2021,6 +2450,9 @@ module.exports = class GlassShelfPlugin extends Plugin {
         if (list) this.placeUnderTabBar(menu, list, null);
         else if (pathMenu) this.placeUnderTabBar(menu, pathMenu, pathMenu.closest(".lg-path-pill"));
         else if (tabMenu) this.placeUnderTabBar(menu, tabMenu, tabMenu.closest(".workspace-tab-header"));
+        // 리본 메뉴: Obsidian 이 준 자리보다 2px 아래에 열려 탭 목록 메뉴와 높이가 달랐다. 같은 기준(버튼 아래 끝 + MENU_DROP)으로 (사용자 요청)
+        const rib = target && target.closest(".lg-rib-menu");
+        if (rib) menu.style.top = `${layoutBottom(rib) + MENU_DROP}px`;
         // 속성(메타데이터) 칸에서 연 메뉴: 그 칸이 밝은 알약으로 떠오르고 메뉴는 칸 바로 밑에
         const row = target && target.closest(".metadata-property");
         if (row) this.focusRow(menu, row);
@@ -2216,9 +2648,42 @@ module.exports = class GlassShelfPlugin extends Plugin {
     menu.style.left = `${left}px`;
     // 탭 줄 버튼·알약 아래 끝(탭 줄 아래 끝 - 아래 여백) + MENU_DROP.
     // 탭 목록·경로 알약의 ≡ 는 그 버튼(알약) 아래 끝 기준: 경로 표시로 탭 줄이 두 줄이 되어도 리본 메뉴와 같은 높이에 연다 (사용자 요청)
-    const rowEl = btn.closest(".lg-path-pill") || (btn.matches(".workspace-tab-header-tab-list") ? btn : null);
-    const bottom = rowEl ? rowEl.getBoundingClientRect().bottom : header.getBoundingClientRect().bottom - gap;
+    // 탭 목록이 버튼 묶음(.lg-tab-tools) 안에 들어가면 버튼이 알약보다 작아 메뉴가 리본 메뉴보다 높게 열렸다: 묶음 알약 아래 끝 기준 (사용자 지적)
+    const rowEl = btn.closest(".lg-path-pill, .lg-tab-tools") || (btn.matches(".workspace-tab-header-tab-list") ? btn : null);
+    const bottom = rowEl ? layoutBottom(rowEl) : header.getBoundingClientRect().bottom - gap;
     menu.style.top = `${bottom + MENU_DROP}px`;
+  }
+
+  // 드롭다운을 Obsidian 메뉴로 연다: 항목마다 고른 것은 체크 표시. 고르면 드롭다운 값을 바꾸고 input·change 를 알려
+  // 설정 화면 등이 운영체제 목록에서 고른 것과 똑같이 받는다
+  openDropdownMenu(sel) {
+    const win = sel.ownerDocument.defaultView || window;
+    const menu = new Menu();
+    // 고른 항목이 메뉴에서 몇 번째인지 (잘린 메뉴를 그 자리로 스크롤할 때 morphMenu 가 쓴다)
+    sel.lgPickIdx = 0;
+    let idx = 0;
+    for (const opt of Array.from(sel.options)) {
+      if (opt.hidden) continue;
+      if (opt.selected) sel.lgPickIdx = idx;
+      idx++;
+      menu.addItem((it) => {
+        it.setTitle(opt.text).setChecked(opt.selected);
+        if (opt.disabled) it.setDisabled(true);
+        it.onClick(() => {
+          if (sel.value === opt.value) return;
+          sel.value = opt.value;
+          sel.dispatchEvent(new win.Event("input", { bubbles: true }));
+          sel.dispatchEvent(new win.Event("change", { bubbles: true }));
+        });
+      });
+    }
+    sel.classList.add("has-active-menu");
+    menu.onHide(() => {
+      sel.classList.remove("has-active-menu");
+      if (sel.isConnected) sel.focus({ preventScroll: true });
+    });
+    const b = sel.getBoundingClientRect();
+    menu.showAtPosition({ x: b.right, y: b.bottom, width: b.width, overlap: true, left: true }, sel.ownerDocument);
   }
 
   // 보관함 전환 메뉴: 버튼이 메뉴의 왼쪽 아래 꼭짓점에 오게 둔다(위에 자리가 없으면 왼쪽 위 꼭짓점).
@@ -2227,26 +2692,69 @@ module.exports = class GlassShelfPlugin extends Plugin {
   morphMenu(menu, src) {
     const win = menu.ownerDocument.defaultView || window;
     const b = src.getBoundingClientRect();
+    // 드롭다운: 메뉴는 드롭다운 폭 이상, 왼쪽으로 열린다: 드롭다운이 메뉴의 오른쪽 위 꼭짓점에 온다(아래에 자리가 없으면 오른쪽 아래 꼭짓점) (사용자 요청)
+    const drop = src.matches("select");
+    // 드롭다운 메뉴는 드롭다운에서 아래로만 연다(드롭다운 위 끝 ~ 창 아래 8px). 길면 그 높이로 자르고 메뉴 안에서 스크롤한다 (CSS: .lg-dd-menu).
+    // 예전엔 창 밖으로 내려가 아래 항목이 안 보였고, 그다음엔 창 위아래를 다 차지했다 (사용자 지적).
+    // 아래 자리가 너무 좁고(120px 미만) 위가 더 넓을 때만 위로 연다(드롭다운 아래 끝 ~ 창 위 8px)
+    let up = false;
+    if (drop) {
+      menu.style.minWidth = `${b.width}px`;
+      menu.classList.add("lg-dd-menu");
+      const below = win.innerHeight - 8 - b.top;
+      const above = b.bottom - 8;
+      up = below < 120 && above > below;
+      const room = up ? above : below;
+      if (menu.offsetHeight > room) menu.style.maxHeight = `${room}px`;
+    }
     const W = Math.max(menu.offsetWidth, b.width);
     const H = Math.max(menu.offsetHeight, b.height);
-    const top = b.bottom - H >= 8 ? b.bottom - H : b.top;
-    menu.style.left = `${b.left}px`;
+    // 최소 폭은 고정 폭으로 바꾼다: 최소 폭이 남아 있으면 넓어지기·줄어들기 애니메이션의 폭이 그 아래로 못 내려가
+    // 점으로 줄지 않고 옆으로 밀려갔다 (사용자 지적). 애니메이션은 고정 폭보다 우선한다
+    if (drop) {
+      menu.style.width = `${W}px`;
+      menu.style.removeProperty("min-width");
+    }
+    // 커뮤니티 찾기 창 정렬 메뉴는 버튼에서 오른쪽 아래로 연다(사용자 요청). 아래 자리가 모자라면 위로
+    const downFirst = src.matches(".mod-community-modal .community-modal-search > .clickable-icon");
+    const top = drop
+      ? (up ? b.bottom - H : b.top)
+      : downFirst
+        ? (b.top + H <= win.innerHeight - 8 ? b.top : Math.max(8, b.bottom - H))
+        : (b.bottom - H >= 8 ? b.bottom - H : b.top);
+    const left = drop ? Math.max(8, b.right - W) : b.left;
+    const anchor = drop ? "right" : "left";
+    menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
     menu.classList.add("lg-bottom-auto");
     const mr = parseFloat(win.getComputedStyle(menu).borderTopLeftRadius) || 22;
-    const full = { left: b.left, top, width: W, height: H, radius: mr };
+    const full = { left, top, width: W, height: H, radius: mr };
     const bx = b.left + b.width / 2;
     const by = b.top + b.height / 2;
-    const { ux, uy } = unitVec(bx, by, b.left + W / 2, top + H / 2);
-    const dot = this.dotAt(bx + ux * MORPH_DASH, by + uy * MORPH_DASH, b.height);
+    const { ux, uy } = unitVec(bx, by, left + W / 2, top + H / 2);
+    // 드롭다운 메뉴는 드롭다운(글자와 화살표 원 전체) 가운데의 점에서 나타나고 그 점으로 사라진다 (사용자 요청)
+    const dot = drop ? this.dotAt(bx, by, b.height) : this.dotAt(bx + ux * MORPH_DASH, by + uy * MORPH_DASH, b.height);
     menu.lgSrc = src;
-    menu.lgMorph = { ux, uy, dot };
-    if (src.lgHide) src.lgHide.cancel();
-    src.lgHide = this.dashOut(src, ux, uy);
+    menu.lgMorph = { ux, uy, dot, anchor };
+    // 드롭다운은 제자리에 그대로 두고 메뉴만 허공에서 넓어져 나온다 (사용자 요청)
+    if (!drop) {
+      if (src.lgHide) src.lgHide.cancel();
+      src.lgHide = this.dashOut(src, ux, uy);
+    }
     const inner = menu.querySelector(".menu-scroll");
+    // Obsidian 메뉴는 목록이 넘치면 마우스 높이에 비례해 목록을 굴린다(목록에 붙은 mousemove). 잘린 드롭다운 메뉴에선 목록이 커서를 따라
+    // 움직였다 (사용자 지적). 그 mousemove 가 목록에 닿기 전에 막는다. 휠 스크롤은 그대로다
+    if (drop && inner) inner.addEventListener("mousemove", (e) => e.stopPropagation(), { capture: true });
+    // 잘린 드롭다운 메뉴는 고른 항목이 보이게 그 자리까지 스크롤해 둔다 (가운데)
+    const picked = drop && inner && inner.querySelectorAll(".menu-item")[src.lgPickIdx];
+    if (picked && inner.scrollHeight > inner.clientHeight) {
+      const pr = picked.getBoundingClientRect();
+      const ir = inner.getBoundingClientRect();
+      inner.scrollTop += pr.top - ir.top - (inner.clientHeight - pr.height) / 2;
+    }
     // 창이 작은 동안 안의 내용이 따라 줄지 않게 크기를 잠시 고정한다
     if (inner) this.pinSize(inner);
-    const grow = this.growBox(menu, inner ? [{ el: inner, anchor: "left" }] : [], dot, full, 90);
+    const grow = this.growBox(menu, inner ? [{ el: inner, anchor }] : [], dot, full, 90);
     if (inner) grow.onfinish = grow.oncancel = () => this.unpinSize(inner);
     if (inner) inner.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, delay: 120, easing: "ease-out", fill: "backwards" });
   }
@@ -2455,19 +2963,21 @@ module.exports = class GlassShelfPlugin extends Plugin {
       if (menu.lgKey) this.lastShut = { key: menu.lgKey, rect: ghost.getBoundingClientRect(), t: win.performance.now(), ghost };
       const src = menu.lgSrc;
       if (menu.lgMorph && src && src.isConnected) {
-        const { ux, uy, dot } = menu.lgMorph;
+        const { ux, uy, dot, anchor } = menu.lgMorph;
         const r = ghost.getBoundingClientRect();
         const mr = parseFloat(win.getComputedStyle(ghost).borderTopLeftRadius) || 22;
         const full = { left: r.left, top: r.top, width: r.width, height: r.height, radius: mr };
+        // 드롭다운은 움직이지 않으므로 돌아오는 동작이 없다. 메뉴는 열릴 때와 같은 드롭다운 가운데 점으로 줄어든다
+        const drop = src.matches("select");
         const inner = ghost.querySelector(".menu-scroll");
         if (inner) this.pinSize(inner);
         if (inner) inner.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 60, easing: "ease-in", fill: "forwards" });
-        this.shrinkBox(ghost, inner ? [{ el: inner, anchor: "left" }] : [], full, dot).onfinish = () => ghost.remove();
+        this.shrinkBox(ghost, inner && !drop ? [{ el: inner, anchor: anchor || "left" }] : [], full, dot).onfinish = () => ghost.remove();
         if (src.lgHide) {
           src.lgHide.cancel();
           src.lgHide = null;
         }
-        this.dashBack(src, ux, uy, 110);
+        if (!drop) this.dashBack(src, ux, uy, 110);
       } else {
         // 기준점은 화면 좌표로 기억해 둔 것을 사본 기준으로 바꿔 쓴다.
         // 부모도 같이 닫혔으면(이미 떼어짐) 한 몸처럼 가장 위에서 같이 닫힌 메뉴의 기준점, 하위 메뉴만 닫히면 자기 기준점
@@ -3120,13 +3630,41 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const order = buttons.map((b, i) => i).filter((i) => kinds[i] === "run").concat(buttons.map((b, i) => i).filter((i) => kinds[i] !== "run"));
     const key = kinds.join(",");
     // 버튼 구성이 같으면 만든 버튼을 그대로 두고 상태만 고친다 (다시 만들면 누름 효과·호버가 끊긴다)
+    let entering = null;
     if (row.lgNavKey !== key || row.lgNavLeaf !== leaf) {
+      // 보기가 바뀌어 버튼이 바뀔 때: 처음 그릴 때가 아니면 옛 버튼은 가운데로 줄어들며 자리를 거둬들이고, 새 버튼은 가운데서 퍼져 나온다
+      // (편집창 뒤로·앞으로 버튼과 같은 방식, 사용자 요청). 처음 그릴 때는 바로 그린다
+      const animate = row.lgNavKey != null && row.isConnected && row.offsetParent !== null;
       row.lgNavKey = key;
       row.lgNavLeaf = leaf;
-      run.empty();
-      rest.empty();
+      // 알약(.lg-nav-run)이 통째로 사라지거나 새로 생길 때는 알약째 움직인다. 안의 버튼만 움직이면 알약이 먼저 접혔다가 사라졌다 (사용자 지적)
+      if (run.lgPillAnim) run.lgPillAnim.cancel();
+      const oldRun = run.querySelectorAll(":scope > .lg-nav-btn:not(.lg-nav-leaving)").length;
+      const newRun = kinds.filter((k) => k === "run").length;
+      const pillLeave = animate && oldRun > 0 && newRun === 0;
+      const pillEnter = animate && oldRun === 0 && newRun > 0;
+      const olds = Array.from(row.querySelectorAll(".lg-nav-btn:not(.lg-nav-leaving)"));
+      // 자리는 모두 먼저 잰다: 하나를 띄우면 나머지가 당겨져, 차례로 재면 모두 첫 자리에 겹쳤다
+      if (animate) olds.forEach((old) => this.navBtnMeasure(old));
+      if (pillLeave) this.navPillPin(run);
+      // 원형 버튼 묶음도 다 비면 크기를 고정한다. 높이가 0으로 줄어 사라지는 버튼이 아래로 밀렸다 (사용자 지적)
+      const restEmpty = animate && rest.querySelector(":scope > .lg-nav-btn:not(.lg-nav-leaving)") && !kinds.some((k) => k !== "run");
+      if (restEmpty) {
+        this.navPillPin(rest);
+        window.clearTimeout(rest.lgUnpinTimer);
+        rest.lgUnpinTimer = window.setTimeout(() => rest.classList.remove("lg-nav-pinned"), 260);
+      }
+      for (const old of olds) {
+        if (!animate) old.remove();
+        else if (pillLeave && old.parentElement === run) old.classList.add("lg-nav-leaving");
+        else this.navBtnLeave(old);
+      }
+      if (pillLeave) this.navPillLeave(run);
+      if (animate) entering = [];
+      run.lgPillEnter = !!pillEnter;
       order.forEach((i) => {
         const p = (kinds[i] === "run" ? run : rest).createDiv({ cls: ["clickable-icon", "lg-nav-btn"] });
+        if (entering) entering.push(p);
         p.addEventListener("mousedown", (e) => {
           e.stopPropagation();
           p.lgWasOpen = !!(p.lgSrc && p.lgSrc.classList.contains("has-active-menu"));
@@ -3148,7 +3686,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
         });
       });
     }
-    const proxies = Array.from(row.querySelectorAll(".lg-nav-btn"));
+    const proxies = Array.from(row.querySelectorAll(".lg-nav-btn:not(.lg-nav-leaving)"));
     order.forEach((bi, pi) => {
       const b = buttons[bi];
       const p = proxies[pi];
@@ -3166,11 +3704,140 @@ module.exports = class GlassShelfPlugin extends Plugin {
       p.classList.toggle("is-active", b.classList.contains("is-active"));
       p.classList.toggle("has-active-menu", b.classList.contains("has-active-menu"));
     });
-    tabsEl.classList.toggle("lg-nav-two", buttons.length > 0);
-    row.classList.toggle("lg-nav-none", buttons.length === 0);
+    if (entering) {
+      if (run.lgPillEnter) this.navBtnEnter(run);
+      entering.forEach((p) => {
+        if (!(run.lgPillEnter && p.parentElement === run)) this.navBtnEnter(p);
+      });
+    }
+    // 새 보기에 버튼이 없으면 버튼 줄을 숨기는데, 사라지는 버튼이 있으면 다 줄어든 뒤에 숨긴다.
+    // 둘째 줄 표시(lg-nav-two)도 함께 늦춘다: 먼저 떼면 아래 묶음에서 버튼 줄이 탭 알약 옆으로 올라가 사라지는 버튼이 자리를 옮기고 탭 알약이 좁아졌다 (사용자 지적)
+    // 둘째 줄이 줄어드는 경우(아래 묶음)는 줄 자리를 바로 거둔다: 남겨 두면 새 보기(그래프 설정 버튼 등)가 빈 칸 아래에 있다가 올라왔다 (사용자 지적).
+    // 버튼 줄은 그 자리에 띄워 두고(.lg-nav-row-out), 헤더 아래 여백을 줄어든 높이만큼에서 0으로 줄여 내용이 부드럽게 올라오게 한다
+    window.clearTimeout(row.lgNoneTimer);
+    if (buttons.length === 0 && row.querySelector(".lg-nav-leaving")) {
+      if (tabsEl.classList.contains("lg-nav-two") && !row.classList.contains("lg-nav-row-out")) {
+        const h0 = header.offsetHeight;
+        const cb = row.offsetParent;
+        const rr = row.getBoundingClientRect();
+        const cr = cb ? cb.getBoundingClientRect() : null;
+        tabsEl.classList.remove("lg-nav-two");
+        if (cb && header.offsetHeight < h0) {
+          row.setCssProps({ "--lg-rx": `${rr.left - cr.left - cb.clientLeft}px`, "--lg-ry": `${rr.top - cr.top - cb.clientTop}px`, "--lg-rw": `${rr.width}px` });
+          row.classList.add("lg-nav-row-out");
+          this.navRowCollapse(tabsEl, header, h0);
+        } else tabsEl.classList.add("lg-nav-two");
+      }
+      row.lgNoneTimer = window.setTimeout(() => {
+        const none = !row.querySelector(".lg-nav-btn:not(.lg-nav-leaving)");
+        row.classList.remove("lg-nav-row-out");
+        row.classList.toggle("lg-nav-none", none);
+        tabsEl.classList.toggle("lg-nav-two", !none);
+      }, 260);
+    } else {
+      if (row.classList.contains("lg-nav-row-out")) {
+        row.classList.remove("lg-nav-row-out");
+        if (tabsEl.lgCollapseEnd) tabsEl.lgCollapseEnd();
+      }
+      row.classList.toggle("lg-nav-none", buttons.length === 0);
+      tabsEl.classList.toggle("lg-nav-two", buttons.length > 0);
+    }
     // 탭이 하나뿐인 묶음 (CSS: .workspace-tabs.lg-one). 테마가 :has(… :only-child) 로 보던 것을 대신한다
     const inner = header.querySelector(":scope > .workspace-tab-header-container-inner");
     tabsEl.classList.toggle("lg-one", !!inner && inner.querySelectorAll(":scope > .workspace-tab-header").length === 1);
+  }
+
+  // 넓게 모드 버튼 줄의 버튼이 나타나고 사라지는 움직임 (사용자 요청): 제자리에서 가로세로가 같이 줄어들며 흐려지고,
+  // 나타날 때는 반대로 제자리에서 커지며 또렷해진다. 자리를 밀거나 당기지 않는다.
+  // 사라지는 버튼은 원래 자리 그대로 띄워(배치에서 빼) 새 버튼이 처음부터 제자리에 놓이게 한다 (CSS: .lg-nav-leaving).
+  // 부모(알약 .lg-nav-run 또는 원형 버튼 묶음)는 바꾸지 않는다: 원형 버튼의 유리는 부모 기준 규칙이라 옮기면 사라진다.
+  // 띄우는 기준은 위치 기준 요소(offsetParent)
+  navBtnMeasure(p) {
+    const cb = p.offsetParent;
+    if (!cb) return;
+    const cr = cb.getBoundingClientRect();
+    const br = p.getBoundingClientRect();
+    p.setCssProps({ "--lg-gx": `${br.left - cr.left - cb.clientLeft}px`, "--lg-gy": `${br.top - cr.top - cb.clientTop}px`, "--lg-gw": `${br.width}px`, "--lg-gh": `${br.height}px` });
+    p.lgMeasured = true;
+  }
+
+  // 둘째 줄이 빠질 때 내용이 올라오는 움직임: 헤더는 내용 위에 떠 있고 내용은 탭 줄 높이(--header-height)만큼 내려 두므로,
+  // 그 값을 옛 높이에서 새 높이로 프레임마다 줄인다. 그동안 헤더 자체는 새 높이로 묶어 탭 알약이 움직이지 않게 한다
+  navRowCollapse(tabsEl, header, h0) {
+    if (tabsEl.lgCollapseEnd) tabsEl.lgCollapseEnd();
+    const h1 = header.offsetHeight;
+    header.setCssProps({ height: `${h1}px` });
+    const t0 = window.performance.now();
+    let raf = 0;
+    const end = () => {
+      window.cancelAnimationFrame(raf);
+      tabsEl.style.removeProperty("--header-height");
+      header.style.removeProperty("height");
+      if (tabsEl.lgCollapseEnd === end) tabsEl.lgCollapseEnd = null;
+    };
+    const step = (now) => {
+      const u = Math.min(1, Math.max(0, (now - t0) / 240));
+      const e = 1 - Math.pow(1 - u, 3);
+      tabsEl.setCssProps({ "--header-height": `${h0 + (h1 - h0) * e}px` });
+      if (u < 1) raf = window.requestAnimationFrame(step);
+      else end();
+    };
+    tabsEl.lgCollapseEnd = end;
+    step(t0);
+  }
+
+  navBtnLeave(p) {
+    if (!p.lgMeasured) return p.remove();
+    p.classList.add("lg-nav-leaving");
+    const anim = p.animate(
+      [
+        { transform: "scale(1)", opacity: 1 },
+        { transform: "scale(0.4)", opacity: 0 },
+      ],
+      { duration: 200, easing: EASE.exit, fill: "forwards" }
+    );
+    const done = () => p.remove();
+    anim.onfinish = anim.oncancel = done;
+    window.setTimeout(done, 400);
+  }
+
+  // 알약째 사라질 때: 크기를 지금 그대로 고정하고(안의 버튼이 배치에서 빠져도 접히지 않게) 제자리에서 줄어들며 흐려진다
+  navPillPin(run) {
+    const r = run.getBoundingClientRect();
+    run.setCssProps({ "--lg-pw": `${r.width}px`, "--lg-ph": `${r.height}px` });
+    run.classList.add("lg-nav-pinned");
+  }
+
+  navPillLeave(run) {
+    const anim = run.animate(
+      [
+        { transform: "scale(1)", opacity: 1 },
+        { transform: "scale(0.4)", opacity: 0 },
+      ],
+      { duration: 200, easing: EASE.exit, fill: "forwards" }
+    );
+    run.lgPillAnim = anim;
+    let ended = false;
+    const done = () => {
+      if (ended) return;
+      ended = true;
+      if (run.lgPillAnim === anim) run.lgPillAnim = null;
+      run.querySelectorAll(":scope > .lg-nav-leaving").forEach((g) => g.remove());
+      run.classList.remove("lg-nav-pinned");
+      anim.cancel();
+    };
+    anim.onfinish = anim.oncancel = done;
+    window.setTimeout(done, 400);
+  }
+
+  navBtnEnter(p) {
+    p.animate(
+      [
+        { transform: "scale(0.4)", opacity: 0 },
+        { transform: "scale(1)", opacity: 1 },
+      ],
+      { duration: 240, easing: EASE.settle }
+    );
   }
 
   // 버튼 종류: "menu" = 누르면 메뉴가 뜬다, "toggle" = 켜고 끈다(모두 접기·펼치기 포함, 사용자 요청), "run" = 눌러서 실행
@@ -3440,6 +4107,19 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const head = c && c.querySelector(".workspace-drawer-header");
     const content = c && c.querySelector(".workspace-drawer-active-tab-content");
     if (!head || !content || head.querySelector(":scope > .lg-drawer-more")) return;
+    // 휴대폰: 테마가 보관함 줄을 목록 위에 겹쳐 두므로(목록이 그 뒤로 지나간다) 줄 높이를 재어 서랍에 넣는다.
+    // 테마가 목록 끝 여백을 그만큼 늘려 마지막 항목이 줄에 가리지 않게 한다 (값이 없으면 테마가 어림값을 쓴다)
+    if (Platform.isPhone) {
+      const win = c.ownerDocument.defaultView || window;
+      const put = () => c.style.setProperty("--lg-dhead-h", `${head.offsetHeight}px`);
+      const ro = new win.ResizeObserver(put);
+      ro.observe(head);
+      put();
+      this.register(() => {
+        ro.disconnect();
+        c.style.removeProperty("--lg-dhead-h");
+      });
+    }
     const btn = head.createDiv({ cls: ["clickable-icon", "workspace-drawer-header-icon", "mod-raised", "lg-drawer-more", INJECTED] });
     setIcon(btn, "more-horizontal");
     btn.setAttribute("aria-label", tr("메뉴", "Menu"));
@@ -3560,18 +4240,34 @@ module.exports = class GlassShelfPlugin extends Plugin {
     // 리본 메뉴: 맨 위 왼쪽 탭 묶음의 뒤로·앞으로 왼쪽 (리본은 숨긴다)
     this.setupRibbonButtons(tabsEl, header, nav);
 
-    // 읽기 모드 전환: 탭 목록 버튼 왼쪽
-    let mode = header.querySelector(":scope > .lg-tab-mode");
+    // 읽기 모드 전환: 문서는 읽기/편집, 웹 뷰어는 읽기 모드(기호만 바뀐다, 사용자 요청)
+    let mode = header.querySelector(".lg-tab-mode");
     if (!mode) {
       mode = this.makeButton("lg-tab-mode", "book-open", tr("읽기/편집 전환", "Toggle reading/editing"), (e) => {
         const leaf = this.activeLeafOf(tabsEl);
-        if (leaf && leaf.view instanceof MarkdownView && typeof leaf.view.onSwitchView === "function") {
-          leaf.view.onSwitchView(e);
-        }
+        const v = leaf && leaf.view;
+        if (isWebView(v) && typeof v.toggleReaderMode === "function") v.toggleReaderMode();
+        else if (v instanceof MarkdownView && typeof v.onSwitchView === "function") v.onSwitchView(e);
         window.setTimeout(() => this.requestRefresh(), 50);
       });
       const tabList = header.querySelector(":scope > .workspace-tab-header-tab-list");
       header.insertBefore(mode, tabList || null);
+    }
+
+    // +·읽기 모드·탭 목록(쌓기 메뉴)을 알약 하나(.lg-tab-tools)로 묶는다 (사용자 요청). + 와 탭 목록은 Obsidian 원래 버튼을 옮겨
+    // 동작이 그대로다. 읽기 모드가 필요 없으면 버튼이 좌우로 접혀 알약이 좁아진다(테마). 휴대폰은 탭 줄이 달라 묶지 않는다
+    if (!Platform.isPhone) {
+      const newTab = header.querySelector(".workspace-tab-header-new-tab");
+      const list = header.querySelector(".workspace-tab-header-tab-list");
+      let tools = header.querySelector(":scope > .lg-tab-tools");
+      if (!tools) {
+        tools = createDiv({ cls: ["lg-tab-tools", INJECTED] });
+        if (header.lgBalanceObs) header.lgBalanceObs.observe(tools);
+      }
+      if (tools.parentElement !== header) header.insertBefore(tools, newTab && newTab.parentElement === header ? newTab : mode);
+      const want = [newTab, mode, list].filter(Boolean);
+      const kids = Array.from(tools.children);
+      if (kids.length !== want.length || kids.some((c, i) => c !== want[i])) want.forEach((el) => tools.appendChild(el));
     }
 
     // 경로 줄은 탭 줄(inner) 바로 앞에 둔다: 경로 표시를 켜면 첫 줄 가운데(탭 알약 자리)에 오고 탭 줄은 둘째 줄로 내려간다
@@ -3595,7 +4291,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
       // 이름 바꾸기가 바로 끝났다 (사용자 지적). 원래 자리(문서 위 줄)에서는 탭 줄을 거치지 않아 문제가 없었다
       for (const type of ["keydown", "keyup", "keypress"]) {
         pill.addEventListener(type, (e) => {
-          if (isEl(e.target) && e.target.isContentEditable && !e.ctrlKey && !e.metaKey && !e.altKey) e.stopPropagation();
+          if (isEl(e.target) && (e.target.isContentEditable || e.target.tagName === "INPUT") && !e.ctrlKey && !e.metaKey && !e.altKey && !WEB_KEYS_PASS.has(e.key)) e.stopPropagation();
         });
       }
       // 지금 탭의 더 보기 메뉴 (경로 표시를 켜면 탭 안의 ≡ 대신 이것을 쓴다)
@@ -3716,7 +4412,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
     }
     const r = anchor.getBoundingClientRect();
     menu.setParentElement(anchor);
-    menu.showAtPosition({ x: r.left, y: r.bottom + MENU_DROP }, doc);
+    menu.showAtPosition({ x: r.left, y: layoutBottom(anchor) + MENU_DROP }, doc);
   }
 
   // inner(탭 줄)를 가진 탭 묶음 객체
@@ -3934,40 +4630,446 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const el = tabsEl.querySelector(":scope > .workspace-tab-header-container > .lg-path .lg-path-text");
     if (!el) return;
     const file = view && view.file;
-    const key = file ? file.path : "";
+    const web = isWebView(view) && this.pathShown(tabsEl) ? this.webParts(view) : null;
+    const key = web ? "web:" : file ? file.path : "";
     if (el.lgView === view && el.dataset.path === key) return;
     el.lgView = view;
     el.dataset.path = key;
     this.returnTitle(el);
     el.empty();
+    const pill = el.parentElement;
+    if (pill) pill.classList.toggle("lg-path-web", !!web);
+    // 웹 뷰어: Obsidian 원래 주소칸(.webviewer-address)을 경로 글자 자리에, 새로고침 버튼을 알약 오른쪽 ≡ 앞에 옮겨 온다 (사용자 요청).
+    // 주소 고치기·제안 목록·이동은 Obsidian 이 그대로 한다
+    if (web) {
+      el.lgMoved = [];
+      const menu = pill && pill.querySelector(":scope > .lg-path-menu");
+      for (const [node, holder, before] of [
+        [web.addr, el, null],
+        [web.reload, pill, menu],
+      ]) {
+        if (!node || !node.parentElement || !holder) continue;
+        el.lgMoved.push({ node, parent: node.parentElement, next: node.nextSibling, holder });
+        holder.insertBefore(node, before);
+      }
+      return;
+    }
     if (!file) return;
     // 상위 폴더(view.titleParentEl)와 파일 이름(view.titleEl)은 새로 그리지 않고 Obsidian 원래 제목 줄의 요소를 옮겨 와 쓴다
     // (사용자 요청). 폴더를 누르면 보여 주기, 제목을 눌러 이름 바꾸기, 이름·위치가 바뀔 때 다시 쓰기는 Obsidian 이 그대로 한다
     el.lgMoved = [];
     for (const node of [view.titleParentEl, view.titleEl]) {
       if (!node || !node.parentElement) continue;
-      el.lgMoved.push({ node, parent: node.parentElement, next: node.nextSibling });
+      el.lgMoved.push({ node, parent: node.parentElement, next: node.nextSibling, holder: el });
       el.appendChild(node);
     }
     if (view.titleEl && view.titleEl.parentElement === el) view.titleEl.classList.add("lg-path-file");
+    // 이름 바꾸기: Obsidian 은 제목을 누르면 상위 폴더 줄을 떼어 두고, 끝나면 원래 제목 줄(titleContainerEl) 맨 앞에 다시 끼운다.
+    // 그래서 이름을 바꾼 뒤 알약엔 파일 이름만 남고 폴더 줄은 원래 자리에 가거나(숨은 자리라) 안 보였다 (사용자 지적).
+    // 원래 제목 줄을 지켜보다 폴더 줄이 돌아오면 알약의 파일 이름 앞으로 다시 옮긴다
+    const box = view.titleContainerEl;
+    if (box && view.titleParentEl) {
+      if (!this.titleWatched) this.titleWatched = new WeakSet();
+      if (!this.titleWatched.has(box)) {
+        this.titleWatched.add(box);
+        const win = box.ownerDocument.defaultView || window;
+        const obs = new win.MutationObserver(() => {
+          const holder = view.titleEl && view.titleEl.parentElement;
+          const p = view.titleParentEl;
+          if (!holder || !holder.classList.contains("lg-path-text") || holder.lgView !== view) return;
+          if (p && p.parentElement === box) holder.insertBefore(p, view.titleEl);
+        });
+        obs.observe(box, { childList: true });
+        this.observers.push(obs);
+      }
+    }
   }
 
   // 옮겨 온 원래 요소를 제자리(문서 보기의 제목 줄)로 돌려보낸다. 넣을 때와 반대 순서로 돌려 순서가 그대로다
   returnTitle(el) {
     const moved = el.lgMoved || [];
     el.lgMoved = null;
-    for (const { node, parent, next } of moved.reverse()) {
+    for (const { node, parent, next, holder } of moved.reverse()) {
       node.classList.remove("lg-path-file");
-      if (node.parentElement !== el) continue;
+      if (node.parentElement !== (holder || el)) continue;
       parent.insertBefore(node, next && next.parentElement === parent ? next : null);
     }
+  }
+
+  // 경로 알약이 첫 줄에 보이는지 (경로 표시를 켰거나 탭 쌓기 모드, 휴대폰 제외)
+  pathShown(tabsEl) {
+    return !Platform.isPhone && (tabsEl.classList.contains("mod-stacked") || !!this.settings.showPath);
+  }
+
+  // 웹 뷰어의 주소칸과 새로고침 버튼 묶음 (Obsidian 원래 요소)
+  webParts(view) {
+    const input = view.addressBar && view.addressBar.addrInputEl;
+    const addr = input && input.parentElement;
+    const reload = view.reloadButtonEl && view.reloadButtonEl.parentElement;
+    if (!addr) return null;
+    // 탭 알약 안에서는 누름이 탭을 끌거나 고르는 데로 가지 않게 한다 (글자를 끌어 고르기)
+    if (!addr.lgWired) {
+      addr.lgWired = true;
+      for (const type of ["mousedown", "pointerdown"]) addr.addEventListener(type, (e) => e.stopPropagation());
+    }
+    return { addr, reload };
+  }
+
+  // 경로 표시를 껐을 때: 지금 탭 알약의 이름 자리에 웹 페이지 도메인을, ≡ 왼쪽에 새로고침을 둔다 (사용자 요청).
+  // 도메인을 누르면 탭 알약이 커지며 탭 줄 가운데로 가 주소칸이 된다(openWebCard, 사파리처럼 다른 탭을 밀지 않는다).
+  // place 가 false 면 옮겨 둔 것을 되돌리기만 한다
+  webTab(tabsEl, leaf, place) {
+    const view = leaf && leaf.view;
+    const want = isWebView(view) && !this.pathShown(tabsEl) && leaf.tabHeaderEl ? leaf : null;
+    const cur = tabsEl.lgWebTab;
+    if (cur && cur.leaf === want && cur.view === view) {
+      const host = webHost(view);
+      if (cur.hostEl.textContent !== host) cur.hostEl.setText(host);
+      return;
+    }
+    if (cur) {
+      for (const { node, parent, next, holder } of cur.moved.reverse()) {
+        if (node.parentElement !== holder) continue;
+        parent.insertBefore(node, next && next.parentElement === parent ? next : null);
+      }
+      cur.hostEl.remove();
+      if (cur.off) cur.off();
+      if (cur.leaf.tabHeaderEl) cur.leaf.tabHeaderEl.classList.remove("lg-web-tab");
+      tabsEl.lgWebTab = null;
+    }
+    if (!want || !place) return;
+    const parts = this.webParts(view);
+    const inner = leaf.tabHeaderEl.querySelector(":scope > .workspace-tab-header-inner");
+    if (!parts || !inner) return;
+    this.setupTabMenu(leaf);
+    const title = inner.querySelector(":scope > .workspace-tab-header-inner-title");
+    const menu = inner.querySelector(":scope > .lg-tab-menu");
+    const hostEl = createDiv({ cls: ["lg-web-host", INJECTED], text: webHost(view) });
+    setTooltip(hostEl, tr("주소 고치기", "Edit address"));
+    // 누름이 탭을 끌거나 고르는 데로 가지 않게 한다
+    for (const type of ["mousedown", "pointerdown"]) hostEl.addEventListener(type, (e) => e.stopPropagation());
+    hostEl.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.openWebCard(leaf);
+    });
+    inner.insertBefore(hostEl, title ? title.nextSibling : null);
+    const moved = [];
+    if (parts.reload && parts.reload.parentElement) {
+      moved.push({ node: parts.reload, parent: parts.reload.parentElement, next: parts.reload.nextSibling, holder: inner });
+      inner.insertBefore(parts.reload, menu);
+    }
+    leaf.tabHeaderEl.classList.add("lg-web-tab");
+    // 페이지를 옮길 때마다 도메인을 다시 쓴다 (탭 줄 갱신이 따로 오지 않아 빈 탭 이름이 남았다)
+    const wv = view.webview;
+    const upd = () => window.setTimeout(() => {
+      if (hostEl.isConnected) hostEl.setText(webHost(view));
+    }, 60);
+    const evs = ["did-navigate", "did-navigate-in-page", "did-stop-loading"];
+    if (wv) evs.forEach((ev) => wv.addEventListener(ev, upd));
+    const off = () => {
+      if (wv) evs.forEach((ev) => wv.removeEventListener(ev, upd));
+    };
+    tabsEl.lgWebTab = { leaf, view, moved, hostEl, off };
+  }
+
+  // 주소 고치기 (사용자 요청, iPadOS 사파리 영상): 지금 탭 알약이 그대로 커지며 탭 줄 가운데로 옮겨 가 주소칸이 된다.
+  // 다른 탭은 밀지 않는다. 진짜 탭을 배치에서 빼면 탭 줄이 흔들리므로, 고치는 동안 탭은 숨기고(자리는 그대로)
+  // 탭과 같은 유리 알약(.lg-web-card)이 탭 자리에서 폭·위치를 바꿔 가운데로 간다 (늘이기 대신 실제 크기를 바꿔 찌그러지지 않는다).
+  // 알약에는 Obsidian 원래 주소칸을 옮겨 와 전체 주소를 고른 채로 고치고, 제안 목록은 알약 유리가 아래로 늘어난 자리에 붙는다
+  // (attachWebSuggest). 주소칸에서 포커스가 빠지면(Enter 로 이동, Esc, 바깥 누름) 탭 자리로 돌아가 다시 탭이 된다
+  openWebCard(leaf) {
+    const view = leaf && leaf.view;
+    const tab = leaf && leaf.tabHeaderEl;
+    const parts = isWebView(view) ? this.webParts(view) : null;
+    const input = view && view.addressBar && view.addressBar.addrInputEl;
+    if (!parts || !tab || !input) return;
+    if (this.webCard) this.closeWebCard(true);
+    const doc = tab.ownerDocument;
+    const win = doc.defaultView || window;
+    const header = tab.closest(".workspace-tab-header-container") || tab;
+    const track = header.querySelector(":scope > .workspace-tab-header-container-inner") || header;
+    const cs = win.getComputedStyle(header);
+    const H = parseFloat(cs.getPropertyValue("--lg-pill-h")) || 34;
+    const tabW = parseFloat(cs.getPropertyValue("--lg-tab-w")) || 320;
+    const t = tab.getBoundingClientRect();
+    const hr = header.getBoundingClientRect();
+    const kr = track.getBoundingClientRect();
+    const W = Math.max(t.width, Math.min(tabW * WEB_CARD_K, hr.width - 16));
+    // 가운데 = 탭 줄(트랙) 가운데. 헤더 밖으로 나가지 않게 맞춘다
+    const left = Math.max(hr.left + 8, Math.min(kr.left + kr.width / 2 - W / 2, hr.right - 8 - W));
+    const top = t.top + t.height / 2 - H / 2;
+    const card = doc.body.createDiv({ cls: ["lg-web-card", INJECTED] });
+    this.webPopTint(card, tab);
+    card.setCssProps({ "--lg-cx": `${left}px`, "--lg-cy": `${top}px`, "--lg-cw": `${W}px`, "--lg-ch": `${H}px` });
+    const rec = { card, leaf, view, tab, addr: parts.addr, parent: parts.addr.parentElement, next: parts.addr.nextSibling };
+    card.appendChild(parts.addr);
+    tab.classList.add("lg-web-editing");
+    this.webCard = rec;
+    const box = (r) => ({ left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    card.animate([box(t), box({ left, top, width: W, height: H })], { duration: 300, easing: EASE.settle });
+    parts.addr.animate([{ opacity: 0 }, { opacity: 0, offset: 0.25 }, { opacity: 1 }], { duration: 300, easing: "ease-out" });
+    const onBlur = () =>
+      win.setTimeout(() => {
+        if (this.webCard === rec && doc.activeElement !== input) this.closeWebCard(false);
+      }, 0);
+    input.addEventListener("blur", onBlur);
+    rec.off = () => input.removeEventListener("blur", onBlur);
+    input.focus();
+  }
+
+  closeWebCard(instant) {
+    const rec = this.webCard;
+    if (!rec) return;
+    this.webCard = null;
+    if (rec.off) rec.off();
+    let ended = false;
+    let fade = null;
+    const finish = () => {
+      if (ended) return;
+      ended = true;
+      // 흐려지는 움직임을 남겨 두면 다음에 열 때 주소칸이 보이지 않는다
+      if (fade) fade.cancel();
+      if (rec.addr.parentElement === rec.card) rec.parent.insertBefore(rec.addr, rec.next && rec.next.parentElement === rec.parent ? rec.next : null);
+      rec.card.remove();
+      rec.tab.classList.remove("lg-web-editing");
+    };
+    const tab = rec.tab;
+    if (instant || !tab.isConnected || !tab.getClientRects().length) return finish();
+    const c = rec.card.getBoundingClientRect();
+    const t = tab.getBoundingClientRect();
+    const box = (r) => ({ left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    const anim = rec.card.animate([box(c), box(t)], { duration: 260, easing: EASE.settle, fill: "forwards" });
+    fade = rec.addr.animate([{ opacity: 1 }, { opacity: 0, offset: 0.4 }, { opacity: 0 }], { duration: 260, fill: "forwards" });
+    anim.onfinish = anim.oncancel = finish;
+    window.setTimeout(finish, 450);
+  }
+
+  // 웹 뷰어 주소 제안 목록: 주소 카드나 경로 알약의 유리가 제안 높이만큼 아래로 늘어나고, 목록은 배경 없이 그 자리에 놓인다
+  // (검색 탭 제안과 같은 방식). 한 덩어리로 보이게 폭도 맞춘다
+  attachWebSuggest(pop, doc) {
+    const input = doc.activeElement;
+    const host = input && input.closest && input.closest(".lg-web-card, .lg-path-pill.lg-path-web");
+    if (!host) return false;
+    const win = doc.defaultView || window;
+    pop.classList.add("lg-sugg-in", "lg-web-sugg");
+    this.webPopTint(pop, host);
+    host.classList.add("lg-sugg-host");
+    const card = host.classList.contains("lg-web-card");
+    const place = () => {
+      if (!pop.isConnected) return;
+      let x, y, w, h;
+      if (card) {
+        // 카드는 커지는 중일 수 있어 화면 좌표 대신 놓일 자리(변수)로 잰다
+        const st = host.style;
+        x = parseFloat(st.getPropertyValue("--lg-cx"));
+        y = parseFloat(st.getPropertyValue("--lg-cy"));
+        w = parseFloat(st.getPropertyValue("--lg-cw"));
+        h = parseFloat(st.getPropertyValue("--lg-ch"));
+      } else {
+        const hr = host.getBoundingClientRect();
+        w = host.offsetWidth;
+        h = host.offsetHeight;
+        x = hr.left + hr.width / 2 - w / 2;
+        y = hr.top + hr.height / 2 - h / 2;
+      }
+      pop.setCssProps({ "--lg-sl": `${x}px`, "--lg-st": `${y + h}px`, "--lg-sw": `${w}px` });
+      host.setCssProps({ "--lg-sugg-h": `${pop.offsetHeight}px` });
+    };
+    const ro = new win.ResizeObserver(place);
+    ro.observe(pop);
+    ro.observe(host);
+    place();
+    const done = new win.MutationObserver(() => {
+      if (pop.isConnected) return;
+      done.disconnect();
+      ro.disconnect();
+      host.style.removeProperty("--lg-sugg-h");
+      host.classList.remove("lg-sugg-host");
+    });
+    done.observe(doc.body, { childList: true });
+    return true;
+  }
+
+  // ---------- 웹 페이지가 탭 줄 뒤로 지나가게 + 대표 색 (사용자 요청, 사파리처럼) ----------
+  // 웹 화면을 편집창 맨 위까지 늘리고(테마), 페이지 안에 탭 줄 높이만큼 위 여백을 넣어 맨 위에서는 내용이 탭 줄 아래에서 시작한다.
+  // 화면 위에 붙는 고정·스티키 헤더는 그만큼 내린다 (Obsidian 웹 뷰어에는 사파리의 콘텐츠 여백 기능이 없어 페이지 안에서 한다).
+  // 페이지 배경색(html, 없으면 body)을 읽어 탭 줄 유리판을 그 색으로 칠한다. 페이지 스크립트가 바뀔 때마다 알린다
+  webWire(view) {
+    const wv = view.webview;
+    if (!wv || wv.lgWired) return;
+    wv.lgWired = true;
+    wv.addEventListener("dom-ready", () => {
+      view.lgInjectTries = 0;
+      this.webInject(view, true);
+    });
+    wv.addEventListener("did-start-navigation", (e) => {
+      if (e.isMainFrame === false || e.isInPlace) return;
+      view.lgTint = null;
+      this.webTint(view);
+    });
+    wv.addEventListener("console-message", (e) => {
+      const m = e && e.message;
+      if (typeof m !== "string" || !m.startsWith(WEB_TINT_MSG)) return;
+      const c = m.slice(WEB_TINT_MSG.length).trim();
+      view.lgTint = c && CSS.supports("color", c) ? c : null;
+      this.webTint(view);
+    });
+    if (view.webviewMounted) this.webInject(view, true);
+  }
+
+  // 파일 탐색기 줄 높이를 다시 재게 한다: 탐색기는 보이는 줄만 그리고 나머지는 처음 잰 줄 높이로 자리를 잡는데,
+  // 줄 간격을 바꿔도 예전 높이를 그대로 써서 스크롤할 때 화면과 스크롤바가 한쪽으로 튀었다 (사용자 지적, 앱을 다시 켜면 괜찮았다).
+  // 탐색기가 폭이 바뀔 때 스스로 부르는 다시 재기(invalidateAll)를 부른다. 새 간격이 그려진 뒤에 한다
+  remeasureExplorers() {
+    window.requestAnimationFrame(() => {
+      this.app.workspace.getLeavesOfType("file-explorer").forEach((leaf) => {
+        const scroll = leaf.view && leaf.view.tree && leaf.view.tree.infinityScroll;
+        if (scroll && typeof scroll.invalidateAll === "function") scroll.invalidateAll();
+      });
+    });
+  }
+
+  // 열린 웹 페이지를 모두 새로고침한다: 경로 표시를 켜고 끄면 탭 줄 높이가 바뀌어 페이지 안 위 여백·내린 헤더가 어긋나서
+  // 새로 불러와 처음부터 다시 맞춘다 (사용자 요청). 탭 줄이 새 높이로 그려진 뒤에 한다
+  reloadWebViews() {
+    window.setTimeout(() => {
+      this.app.workspace.getLeavesOfType("webviewer").forEach((leaf) => {
+        const view = leaf.view;
+        const wv = view && view.webview;
+        if (!wv || !view.webviewMounted || !wv.isConnected) return;
+        try {
+          wv.reload();
+        } catch (err) {
+          /* 이미 닫힌 페이지 */
+        }
+      });
+    }, 300);
+  }
+
+  // 웹 페이지를 옮기면 탭 줄을 다시 맞춘다: 웹 뷰어는 페이지 이동을 탭 방문 기록에 넣지만 Obsidian 이 따로 알리지 않아,
+  // 새 탭에서 페이지를 옮겨도 뒤로·앞으로 버튼이 다른 탭에 갔다 올 때까지 나오지 않았다 (사용자 지적)
+  webNavWire(view) {
+    const wv = view.webview;
+    if (!wv || wv.lgNavWired) return;
+    wv.lgNavWired = true;
+    const upd = () => window.setTimeout(() => this.requestRefresh(), 60);
+    wv.addEventListener("did-navigate", upd);
+    wv.addEventListener("did-navigate-in-page", upd);
+    // 방문 기록은 이동 알림보다 늦게(다 불러온 무렵) 늘어나서, 다 불러왔을 때도 다시 맞춘다 (재 보니 이동 알림 때는 아직 0)
+    wv.addEventListener("did-stop-loading", upd);
+  }
+
+  // 페이지에 위 여백(탭 줄 아래 끝까지의 높이)을 알린다. 높이가 바뀌었을 때(경로 표시 켜고 끄기 등)만 다시 보낸다
+  webInject(view, force) {
+    const wv = view.webview;
+    const tabs = view.leaf && view.leaf.parent && view.leaf.parent.containerEl;
+    const header = tabs && tabs.querySelector(":scope > .workspace-tab-header-container");
+    if (!wv || !header || !view.webviewMounted || !wv.isConnected) return;
+    const wr = wv.getBoundingClientRect();
+    // 웹 뷰어 새 탭(빈 화면)에서 주소를 넣어 이동하면 페이지가 준비될 때 웹 화면이 아직 숨어 있어(높이 0) 여백을 못 넣었다 (사용자 지적).
+    // 보일 때까지 잠깐씩 다시 해 본다
+    window.clearTimeout(view.lgInjectTimer);
+    if (!wr.height) {
+      const tries = (view.lgInjectTries || 0) + 1;
+      view.lgInjectTries = tries;
+      if (tries <= 40) view.lgInjectTimer = window.setTimeout(() => this.webInject(view, true), 150);
+      return;
+    }
+    view.lgInjectTries = 0;
+    const inset = Math.max(0, Math.round(header.getBoundingClientRect().bottom - wr.top));
+    if (!force && view.lgInset === inset) return;
+    view.lgInset = inset;
+    try {
+      wv.executeJavaScript(WEB_PAGE_SCRIPT.replace("__LG_INSET__", String(inset))).catch(() => {});
+    } catch (err) {
+      console.error("[glass-shelf] web inset", err);
+    }
+  }
+
+  // 탭 줄 유리판 색: 이 탭 묶음에서 지금 보이는 탭이 이 웹 뷰어일 때만
+  webTint(view) {
+    const leaf = view.leaf;
+    const tabs = leaf && leaf.parent && leaf.parent.containerEl;
+    if (!tabs || this.activeLeafOf(tabs) !== leaf) return;
+    // 다크 모드면 페이지 배경색에 검정을 조금 섞는다 (사용자 요청)
+    const dark = tabs.ownerDocument.body.classList.contains("theme-dark");
+    const L0 = view.lgTint && dark ? colorLightness(view.lgTint, tabs.ownerDocument) : null;
+    const k = L0 == null ? 0 : WEB_DARK_DIM * Math.min(1, Math.max(0, (L0 - WEB_DARK_DIM_FROM) / (1 - WEB_DARK_DIM_FROM)));
+    const c = k > 0 ? colorDim(view.lgTint, k, tabs.ownerDocument) : view.lgTint;
+    if (c) tabs.setCssProps({ "--lg-web-tint": c });
+    tabs.classList.toggle("lg-web-tinted", !!c);
+    // 유리 세트: 대표 색 밝기에 따라 라이트·다크 유리 값을 섞는다 (모드와 상관없이, 사용자 요청). 라이트 유리의 흰 반사광이
+    // 어두운 색 위에서 너무 밝게 떴고, 둘 중 하나로 바꾸면 중간 밝기 색에서 어색했다. OKLab 명도 GLASS_MIX_LO 이하는 다크,
+    // GLASS_MIX_HI 이상은 라이트, 그 사이는 명도에 비례해 섞는다
+    const header = tabs.querySelector(":scope > .workspace-tab-header-container");
+    const L = c ? colorLightness(c, tabs.ownerDocument) : null;
+    if (header) {
+      header.classList.toggle("lg-glass-mix", L != null);
+      if (L != null) header.setCssProps({ "--lg-glass-t": String(Math.round(Math.min(1, Math.max(0, (GLASS_MIX_HI - L) / (GLASS_MIX_HI - GLASS_MIX_LO))) * 1000) / 1000) });
+      else header.style.removeProperty("--lg-glass-t");
+    }
+  }
+
+  // 색을 칠한 웹 탭 줄에서 연 메뉴·주소 카드·주소 제안도 같은 색 유리로 (사용자 요청). from 이 그 탭 줄이나 이미 칠한 팝업 안에 있으면
+  // 탭 줄의 색(--lg-web-tint)과 유리 섞기 비율(--lg-glass-t)을 el 에 옮긴다. 팝업은 body 에 붙어 탭 줄 변수를 물려받지 못한다
+  webPopTint(el, from) {
+    if (!isEl(from)) return;
+    let tint = "", t = "";
+    const pop = from.closest(".lg-web-pop");
+    if (pop) {
+      tint = pop.style.getPropertyValue("--lg-web-tint");
+      t = pop.style.getPropertyValue("--lg-glass-t");
+    } else {
+      const tabs = from.closest(".mod-root .workspace-tabs.lg-web-tinted");
+      if (!tabs) return;
+      const header = tabs.querySelector(":scope > .workspace-tab-header-container");
+      tint = tabs.style.getPropertyValue("--lg-web-tint");
+      t = header ? header.style.getPropertyValue("--lg-glass-t") : "";
+    }
+    if (!tint) return;
+    el.classList.add("lg-web-pop", "lg-glass-mix");
+    el.setCssProps({ "--lg-web-tint": tint, "--lg-glass-t": t || "0" });
+  }
+
+  // 설정을 켜고 끌 때: 끄면 페이지 여백·탭 줄 색을 되돌리고, 켜면 다음 갱신 때 다시 넣는다
+  webReset(on) {
+    if (!on) this.webUninject();
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      if (isWebView(leaf.view)) leaf.view.lgInset = null;
+    });
+    for (const doc of this.docs) {
+      if (!doc.body) continue;
+      doc.querySelectorAll(".lg-web-tinted").forEach((el) => el.classList.remove("lg-web-tinted"));
+      doc.querySelectorAll(".mod-root .lg-glass-mix").forEach((el) => { el.classList.remove("lg-glass-mix"); el.style.removeProperty("--lg-glass-t"); });
+    }
+  }
+
+  // 끌 때: 페이지에 넣은 여백과 내린 헤더를 되돌린다
+  webUninject() {
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const wv = isWebView(leaf.view) && leaf.view.webview;
+      if (!wv || !leaf.view.webviewMounted) return;
+      try {
+        wv.executeJavaScript("window.__lgInset = 0; window.__lgGS && window.__lgGS(true);").catch(() => {});
+      } catch (err) {
+        /* 이미 닫힌 페이지 */
+      }
+    });
   }
 
   // 원래 버튼의 상태를 새 버튼에 옮긴다
   syncTabBar(tabsEl, nav, mode) {
     const leaf = this.activeLeafOf(tabsEl);
     const view = leaf && leaf.view;
+    const isWeb = isWebView(view) && !Platform.isPhone;
+    // 웹 뷰어는 보기 헤더(주소 줄)를 늘 보이게 하는데, 주소칸·새로고침·읽기 모드를 탭 줄로 옮기므로 다른 보기처럼 숨긴다 (끌 때 되돌린다)
+    if (isWeb && view.headerEl && view.headerEl.classList.contains("view-header-always-show")) {
+      view.headerEl.classList.remove("view-header-always-show");
+      view.headerEl.classList.add("lg-web-head");
+    }
 
+    if (isWeb) this.webNavWire(view);
     const hist = leaf && leaf.history;
     const back = nav.querySelector(".lg-tab-back");
     const fwd = nav.querySelector(".lg-tab-forward");
@@ -3982,12 +5084,36 @@ module.exports = class GlassShelfPlugin extends Plugin {
     fwd.toggleClass("lg-nav-hide", !canFwd);
     nav.toggleClass("lg-nav-empty", !canBack && !canFwd);
 
+    // 탭 알약에 옮겨 둔 주소칸을 먼저 되돌리고(경로 알약으로 갈 수 있게), 경로 알약을 맞춘 뒤 탭 알약에 둔다
+    this.webTab(tabsEl, leaf, false);
     this.updatePath(tabsEl, view);
+    this.webTab(tabsEl, leaf, true);
+    // 웹 뷰어 새 탭(빈 화면): Obsidian 은 주소칸에 커서를 두려 하지만 주소칸이 숨긴 보기 헤더에 있어 들어가지 못해,
+    // 바로 주소를 칠 수 없었다 (사용자 지적). 한 번만 주소칸을 열어 커서를 둔다(경로 알약 주소칸, 또는 탭 알약에서 주소 알약을 띄운다)
+    if (isWeb && view.mode === "blank" && !view.lgAutoFocus) {
+      view.lgAutoFocus = true;
+      window.setTimeout(() => {
+        if (this.activeLeafOf(tabsEl) !== leaf || leaf.view !== view || view.mode !== "blank") return;
+        const input = view.addressBar && view.addressBar.addrInputEl;
+        if (this.pathShown(tabsEl)) {
+          if (input) input.focus();
+        } else this.openWebCard(leaf);
+      }, 60);
+    }
+    if (isWeb && this.settings.webTint) {
+      this.webWire(view);
+      this.webInject(view, false);
+      this.webTint(view);
+    } else if (tabsEl.classList.contains("lg-web-tinted")) {
+      tabsEl.classList.remove("lg-web-tinted");
+      const h = tabsEl.querySelector(":scope > .workspace-tab-header-container");
+      if (h) { h.classList.remove("lg-glass-mix"); h.style.removeProperty("--lg-glass-t"); }
+    }
 
     const isMd = view instanceof MarkdownView;
     // 숨길 때 바로 없애지 않고 폭을 접어서, 탭 길이가 부드럽게 바뀌게 한다
     mode.classList.remove(HIDDEN);
-    mode.classList.toggle("lg-mode-off", !isMd);
+    mode.classList.toggle("lg-mode-off", !isMd && !isWeb);
 
     this.balanceTabs(tabsEl);
     // 뒤로·앞으로·읽기 모드 버튼이 나타나고 사라지는 동안(0.24초) 매 프레임 다시 맞춘다.
@@ -4001,13 +5127,17 @@ module.exports = class GlassShelfPlugin extends Plugin {
       };
       win.requestAnimationFrame(step);
     }
-    if (isMd) {
-      const reading = view.getMode() === "preview";
-      const icon = reading ? "edit-3" : "book-open";
-      if (mode.dataset.icon !== icon) {
+    // 웹 뷰어 읽기 모드는 켜져 있으면 강조색으로 보인다
+    mode.classList.toggle("is-active", isWeb && view.mode === "reader");
+    if (isMd || isWeb) {
+      const reading = isMd ? view.getMode() === "preview" : view.mode === "reader";
+      const icon = isWeb ? "glasses" : reading ? "edit-3" : "book-open";
+      const key = `${icon}:${reading}`;
+      if (mode.dataset.icon !== key) {
         setIcon(mode, icon);
-        mode.dataset.icon = icon;
-        setTooltip(mode, reading ? tr("편집 모드로 전환", "Switch to editing view") : tr("읽기 모드로 전환", "Switch to reading view"));
+        mode.dataset.icon = key;
+        if (isWeb) setTooltip(mode, reading ? tr("웹 페이지로 보기", "Show web page") : tr("읽기 모드", "Reader view"));
+        else setTooltip(mode, reading ? tr("편집 모드로 전환", "Switch to editing view") : tr("읽기 모드로 전환", "Switch to reading view"));
       }
     }
   }
@@ -4811,6 +5941,7 @@ class GlassShelfSettingTab extends PluginSettingTab {
         t.setValue(!!this.plugin.settings.showPath).onChange(async (value) => {
           this.plugin.settings.showPath = value;
           await this.plugin.saveSettings();
+          this.plugin.reloadWebViews();
         })
       );
 
@@ -4821,6 +5952,17 @@ class GlassShelfSettingTab extends PluginSettingTab {
         t.setValue(!!this.plugin.settings.miniBar).onChange(async (value) => {
           this.plugin.settings.miniBar = value;
           if (!value) document.querySelectorAll(".workspace-tabs.lg-mini").forEach((el) => this.plugin.setMini(el, false));
+          await this.plugin.saveSettings();
+        })
+      );
+
+    if (!Platform.isPhone) new Setting(containerEl)
+      .setName(tr("몰입형 웹 보기", "Immersive web view"))
+      .setDesc(tr("웹 뷰어에서 페이지가 탭 줄 뒤로 지나가게 하고, 탭 줄과 버튼을 페이지의 대표 색으로 칠합니다. (데스크톱, 태블릿)", "In the web viewer, lets the page scroll behind the tab bar and colors the tab bar and its buttons with the page's theme color. (Desktop, tablet)"))
+      .addToggle((t) =>
+        t.setValue(!!this.plugin.settings.webTint).onChange(async (value) => {
+          this.plugin.settings.webTint = value;
+          this.plugin.webReset(value);
           await this.plugin.saveSettings();
         })
       );
@@ -4920,6 +6062,16 @@ class GlassShelfSettingTab extends PluginSettingTab {
     }
 
     group(tr("파일 탐색기", "File explorer"));
+    if (Platform.isMobile) new Setting(containerEl)
+      .setName(tr("줄 간격 좁게", "Compact rows"))
+      .setDesc(tr("파일 목록 항목의 위아래 간격을 컴퓨터만큼 줄여 한 화면에 더 많이 보이게 합니다. (모바일)", "Reduces the vertical spacing of file list items to the desktop size so more fit on screen. (Mobile)"))
+      .addToggle((t) =>
+        t.setValue(!!this.plugin.settings.navCompact).onChange(async (value) => {
+          this.plugin.settings.navCompact = value;
+          await this.plugin.saveSettings();
+          this.plugin.remeasureExplorers();
+        })
+      );
     if (!Platform.isMobile) new Setting(containerEl)
       .setName(tr("줄무늬 배경", "Striped rows"))
       .setDesc(tr("파일 목록에 한 줄씩 번갈아 줄무늬를 깔아 항목을 구분하기 쉽게 합니다.", "Alternates row backgrounds in the file list so items are easier to tell apart."))

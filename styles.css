@@ -25,8 +25,8 @@
 
 /* ··· 메뉴에서 버튼을 대신 눌러 하위 메뉴(정렬 등)가 떠 있는 동안: Obsidian 메뉴는 부모 버튼이 화면에 없으면 닫히므로
    버튼 줄을 보이지 않게, 자리 차지 없이 화면에 둔다 (플러그인이 그동안 .lg-nav-proxy 를 붙인다) */
-.lg-ui .workspace-leaf-content > .nav-header.lg-nav-proxy {
-  display: block !important;
+.lg-ui .workspace-leaf-content > .nav-header.lg-nav-proxy:not(#lg) {
+  display: block;
   position: absolute;
   height: 0;
   overflow: visible;
@@ -34,8 +34,8 @@
   pointer-events: none;
 }
 
-.lg-ui .nav-header.lg-nav-proxy .nav-buttons-container {
-  display: flex !important;
+.lg-ui .nav-header.lg-nav-proxy .nav-buttons-container:not(#lg) {
+  display: flex;
 }
 
 /* 버튼 줄 말고 보이는 게 없으면 헤더째 숨긴다. 판정은 플러그인(markBareHeads)이 보기에 lg-bare-head 로 붙인다.
@@ -97,6 +97,13 @@
    탭 줄 가운데 맞춤이 어긋나 탭이 서랍 쪽으로 밀린다 */
 body.lg-ui:not(.is-mobile) .workspace.is-right-sidedock-open .workspace-tab-header-container .sidebar-toggle-button.mod-right,
 body.lg-ui:not(.is-mobile) .workspace.is-left-sidedock-open .workspace-tab-header-container .sidebar-toggle-button.mod-left {
+  display: none;
+}
+
+/* 패널 안 탭 줄에 있을 때는 열림 상태와 상관없이 숨긴다: 패널을 닫기 시작하면 Obsidian 이 열림 표시(is-…-sidedock-open)를 바로 빼서,
+   닫히는 동안 토글이 패널 탭 줄에 다시 나타나 탭 알약을 한 줄 아래로 밀었다 (사용자 지적, PC 에서 54 → 86px).
+   패널이 다 닫히면 Obsidian 이 토글을 편집창 탭 줄로 옮긴다 */
+body.lg-ui:not(.is-mobile) :is(.mod-left-split, .mod-right-split) .workspace-tab-header-container > .sidebar-toggle-button {
   display: none;
 }
 
@@ -388,9 +395,9 @@ body.lg-ui.is-tablet .workspace-drawer {
 }
 
 /* 정렬 등 버튼 메뉴를 하위 메뉴로 옮겨 올 때, 원래 메뉴를 잠깐 보이지 않게 연다 (플러그인이 .lg-menu-snap 을 붙였다 뗀다) */
-body.lg-menu-snap .menu:not(.lg-menu-ghost) {
-  visibility: hidden !important;
-  animation: none !important;
+body.lg-menu-snap .menu:not(.lg-menu-ghost):not(#lg):not(#lg) {
+  visibility: hidden;
+  animation: none;
 }
 
 /* ---------- 폴더 색 (플러그인이 색 지정 폴더에 .lg-fc 와 --lg-fc·--lg-folder-icon 을 붙인다) ----------
@@ -491,6 +498,17 @@ body.lg-menu-snap .menu:not(.lg-menu-ghost) {
   font-size: var(--font-ui-small);
 }
 
+/* 휴대폰: Obsidian 은 설정 줄을 세로로 쌓아(이름 위, 칸 아래) 이름이 줄 위쪽에 붙어 보였다 (사용자 지적).
+   폴더 색 줄은 가로 한 줄로 두고 이름을 위아래 가운데에 */
+body.is-phone .modal .setting-item.lg-fc-row:not(#lg) {
+  flex-direction: row;
+  align-items: center;
+}
+
+body.is-phone .modal .setting-item.lg-fc-row:not(#lg) .setting-item-control {
+  width: auto;
+}
+
 /* 지정된 색: 폴더 수는 색 칸 바로 왼쪽에 오른쪽 맞춤 */
 .lg-fc-count {
   min-width: 5.5em;
@@ -578,6 +596,35 @@ body.lg-fc-sorting * {
   bottom: auto !important;
 }
 
+/* 설정 창 뒤로 버튼이 숨을 때 그 자리에 띄우는 사본 (자리·크기는 플러그인이 잰다) */
+.lg-back-ghost {
+  position: fixed !important;
+  left: var(--lg-gx) !important;
+  top: var(--lg-gy) !important;
+  right: auto !important;
+  bottom: auto !important;
+  width: var(--lg-gw) !important;
+  height: var(--lg-gh) !important;
+  margin: 0 !important;
+  z-index: calc(var(--layer-modal) + 1);
+  pointer-events: none;
+}
+
+.lg-back-hidden {
+  opacity: 0 !important;
+}
+
+/* 드롭다운 메뉴가 창보다 길 때: 메뉴 높이는 플러그인이 창 안으로 자르고, 항목 목록은 그 안에서 스크롤한다 */
+.menu.lg-dd-menu .menu-scroll {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+/* 스크롤바는 메뉴 위아래 모서리 곡선을 조금 피해 그 안쪽에서만 (사용자 요청). 반지름의 절반(14px)에서 사용자 요청으로 그 중간(4분의 1, 7px)으로 줄였다 */
+.menu.lg-dd-menu .menu-scroll::-webkit-scrollbar-track {
+  margin-block: calc(var(--lg-menu-radius, 28px) / 4);
+}
+
 /* 창이 작은 동안 안의 내용 크기를 고정할 때 (폭·높이는 인라인으로 잰 값) */
 .lg-pinned {
   flex: none !important;
@@ -599,32 +646,144 @@ body.lg-fc-sorting * {
 }
 
 /* 메뉴 호버 판: 고른 항목이 있으면 보이고 없으면 흐려진다 */
-.lg-menu-hl.lg-hl-on {
-  opacity: 1 !important;
+.lg-menu-hl.lg-hl-on:not(#lg) {
+  opacity: 1;
 }
 
-.lg-menu-hl.lg-hl-off {
-  opacity: 0 !important;
+.lg-menu-hl.lg-hl-off:not(#lg) {
+  opacity: 0;
 }
 
 /* 패널 탭 렌즈 틀: 움직이는 동안 보이고 멈추면 숨는다 */
-.lg-seg-indicator.lg-seg-on {
-  opacity: 1 !important;
+.lg-seg-indicator.lg-seg-on:not(#lg) {
+  opacity: 1;
 }
 
-.lg-seg-indicator.lg-seg-off {
-  opacity: 0 !important;
+.lg-seg-indicator.lg-seg-off:not(#lg) {
+  opacity: 0;
 }
 
 /* 창 제어 알약 크기 재기용 임시 요소 */
-.lg-wc-probe {
-  position: absolute !important;
-  visibility: hidden !important;
-  width: var(--lg-wc-w) !important;
-  height: var(--lg-pill-h) !important;
+.lg-wc-probe:not(#lg):not(#lg) {
+  position: absolute;
+  visibility: hidden;
+  width: var(--lg-wc-w);
+  height: var(--lg-pill-h);
 }
 
-.lg-wc-probe.lg-wc-probe-k {
-  width: calc(var(--lg-wc-w) * var(--lg-wc-k, 1)) !important;
-  height: calc(var(--lg-pill-h) * var(--lg-wc-k, 1)) !important;
+.lg-wc-probe.lg-wc-probe-k:not(#lg):not(#lg) {
+  width: calc(var(--lg-wc-w) * var(--lg-wc-k, 1));
+  height: calc(var(--lg-pill-h) * var(--lg-wc-k, 1));
+}
+
+/* 휴대폰 설정: Obsidian 휴대폰 규칙은 설정 줄을 세로로 쌓고 입력칸을 줄 폭 전체로 늘려, 색 고르기 칸이 길게 늘어나고
+   팔레트 줄의 손잡이가 다음 줄로 밀려 공간을 낭비했다 (사용자 지적). 폴더 색·팔레트 줄은 한 줄로 두고 색 칸은 작은 원으로 */
+.is-phone .modal .lg-settings .setting-item.lg-fc-row:not(#lg) {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: var(--size-4-2);
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-info:not(#lg) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-name:not(#lg) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-control:not(#lg) {
+  flex: 0 1 auto;
+  width: auto;
+  min-width: 0;
+  flex-wrap: nowrap;
+  gap: var(--size-4-2);
+}
+
+/* 팔레트 줄·색 추가 줄은 입력칸이 남는 폭을 쓴다 */
+.is-phone .modal .lg-settings .setting-item.lg-fc-pal-row .setting-item-control:not(#lg),
+.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-control:has(input[type="text"]):not(#lg) {
+  flex: 1 1 auto;
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-control input[type="text"]:not(#lg) {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-control input.lg-fc-hex:not(#lg) {
+  flex: 0 0 auto;
+  width: 6.2em;
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-control input[type="color"]:not(#lg) {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-control button:not(#lg) {
+  flex: 0 0 auto;
+  width: auto;
+}
+
+.is-phone .modal .lg-settings .lg-fc-count:not(#lg) {
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* 색 추가 줄: 왼쪽 이름("색 추가")은 글자 폭만 */
+.is-phone .modal .lg-settings .setting-item.lg-fc-row:has(.setting-item-control input[type="text"]) .setting-item-info:not(#lg) {
+  flex: 0 0 auto;
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row input[type="color"]::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.is-phone .modal .lg-settings .setting-item.lg-fc-row input[type="color"]::-webkit-color-swatch {
+  border: none;
+  border-radius: 50%;
+}
+
+/* 넓게 모드 버튼 줄에서 사라지는 중인 버튼 (플러그인 navBtnLeave): 버튼 줄 위 원래 자리에 띄워 둔 채 줄어들며 흐려진다.
+   배치에서 빠져 새 버튼이 처음부터 제자리에 놓인다. 누를 수 없고, CSS 전환이 움직임을 가로채지 않게 끈다 */
+.lg-nav-row {
+  position: relative;
+}
+
+.lg-nav-btn.lg-nav-leaving:not(#lg):not(#lg) {
+  position: absolute;
+  left: var(--lg-gx);
+  top: var(--lg-gy);
+  width: var(--lg-gw);
+  height: var(--lg-gh);
+  margin: 0;
+  pointer-events: none;
+  transition: none;
+}
+
+/* 알약째 사라지는 동안(플러그인 navPillLeave): 안의 버튼이 배치에서 빠져도 알약이 접히지 않게 크기를 고정한다 */
+.lg-nav-row.lg-nav-row-out:not(#lg):not(#lg):not(#lg) {
+  position: absolute;
+  left: var(--lg-rx);
+  top: var(--lg-ry);
+  width: var(--lg-rw);
+  margin: 0;
+  pointer-events: none;
+}
+
+.lg-nav-run.lg-nav-pinned:not(#lg):not(#lg),
+.lg-nav-rest.lg-nav-pinned:not(#lg):not(#lg) {
+  flex: none;
+  width: var(--lg-pw);
+  height: var(--lg-ph);
+  pointer-events: none;
 }
