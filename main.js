@@ -1436,12 +1436,16 @@ module.exports = class GlassShelfPlugin extends Plugin {
 
     // 할 일 체크박스: 켜질 때·꺼질 때 애니메이션. 편집기·읽기 보기가 체크박스를 새로 그려 바꿔 끼우기도 하므로
     // 잠깐(0.6초) 누른 자리의 체크박스를 지켜보다가 새것이 나타나면 거기서 이어서 재생한다
+    let taskMo = null;
     this.registerDomEvent(
       doc,
       "click",
       (e) => {
         const cb = isEl(e.target) && e.target.closest("input.task-list-item-checkbox");
         if (!cb) return;
+        // 앞 클릭의 감시는 끝낸다: 1.6초 안에 다시 누르면 앞 클릭의 감시가 문서 변화를 보고 앞 상태(끄기) 애니메이션을 다시 걸어
+        // 새 애니메이션을 덮었다 (사용자 지적: 체크된 채 호버해 끄고 그대로 다시 켜면 애니메이션이 안 나왔다. 편집 모드 콜아웃 밖)
+        if (taskMo) taskMo.disconnect();
         const x = e.clientX;
         const y = e.clientY;
         const t0 = win.performance.now();
@@ -1501,6 +1505,7 @@ module.exports = class GlassShelfPlugin extends Plugin {
           }
         };
         const mo = new win.MutationObserver(step);
+        taskMo = mo;
         // 문서 전체 대신 그 체크박스가 든 보기 칸만 본다 (검토 지적). 칸 밖(칸반 끌기 등)이면 문서 전체
         mo.observe(cb.closest(".workspace-leaf-content") || doc.body, { childList: true, subtree: true });
         win.setTimeout(() => mo.disconnect(), 1600);
