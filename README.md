@@ -16,6 +16,7 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
 ### Layout
 - Sidebar more-options menus, back/forward and reading-mode buttons in the tab bar, and in-tab menu buttons, rearranged into pills
 - Shows the current note's "folder / file" path above the tab bar
+- Moves the web viewer's address bar, reload and reading-mode buttons into the tab bar
 - Collapses the tab bar to the note title when you scroll down (Safari style)
 - Lens effect when switching panel tabs, wide tab bar, tab names
 - Shrinks the Windows and Linux window controls into small dots
@@ -41,12 +42,20 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
   <img src="images/graph-view-slider.gif" width="30%" alt="iOS-style toggles and sliders">
 </p>
 
+<p align="center">
+  <img src="images/task-checkbox.gif" alt="Task checkbox">
+</p>
+
 ### Plugin integration
 - Kanban: restyled to match Glass Shelf
 
 ## What moves where
 
 With the plugin on, a few buttons move. They work the same; only their place changes.
+
+![Default tab bar](images/tab-bar.png)
+
+Turn off **Wide tab bar** and **Show tab names** in the settings for a more compact tab bar.
 
 ![Compact layout with panel tab names turned off](images/compact-layout.png)
 
@@ -65,8 +74,9 @@ With the plugin on, a few buttons move. They work the same; only their place cha
 ### Editor tab bar
 
 - **Back / forward**: left side of the tab bar
-- **Reading / editing toggle**: right side of the tab bar, left of the tab list button
+- **New tab (+), reading mode and tab list**: one pill on the right side of the tab bar. In tabs that have no reading mode, that button folds away and the pill gets narrower. The tab list button still opens the tab list and the tab stacking menu.
 - **More options (≡)**: inside each tab. With the path display on, it moves into the path pill above the tab bar.
+- **Web viewer**: with the path display on, the address bar sits in the path pill and the pill widens while you edit. With it off, the tab shows only the domain; click it and that tab pill grows into an address bar in the middle of the tab bar. History suggestions appear right below the pill. Reload sits to the right of the path pill (left of the in-tab ≡ when the path is off), and the note's reading-mode button switches its icon to handle reading mode. (Desktop, tablet)
 
 ### Tab settings
 
@@ -79,6 +89,7 @@ Change them in **Settings → Community plugins → Glass Shelf Companion**.
 | Show tab names | Puts the name next to each panel tab icon |
 | Show path | "Folder / file" path above the editor tab bar |
 | Collapse tab bar on scroll | Folds the tab bar when you scroll down |
+| Immersive web view | In the web viewer, the page runs behind the tab bar, and the tab bar and buttons follow the page's background color |
 
 ## Installation
 
