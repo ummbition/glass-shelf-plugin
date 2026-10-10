@@ -3529,6 +3529,9 @@ module.exports = class GlassShelfPlugin extends Plugin {
 
   // 폴더를 열고 닫으면 Obsidian 애니메이션(약 0.2초) 동안 줄이 움직이므로, 그동안 매 프레임 막대를 줄 위치에 다시 맞춘다
   followStripes(list) {
+    // 줄무늬를 그리지 않으면(모바일·설정에서 끔) 따라갈 막대가 없다. 매 프레임 줄마다 위치를 재던 것을 건너뛴다
+    // (휴대폰에서 서랍을 열 때마다 목록이 다시 그려져 0.2초 동안 돌았다, 프로파일로 확인). 줄 하이라이트 폭은 폴더 색 갱신이 한 번 맞춘다
+    if (!this.settings.fileStripes || Platform.isMobile) return;
     const win = list.ownerDocument.defaultView || window;
     list.lgStripeUntil = win.performance.now() + STRIPE_FOLLOW_MS;
     if (list.lgStripeLoop) return;
@@ -3570,6 +3573,12 @@ module.exports = class GlassShelfPlugin extends Plugin {
     }
     this.markBareHeads(ws.leftSplit);
     this.markBareHeads(ws.rightSplit);
+    // 왼쪽 패널 토글 버튼에 표시를 붙인다(패널이 닫히면 탭 줄, 열리면 리본 맨 위로 옮겨지는 같은 요소라 어디 있든 붙인다) (styles.css 리본 여닫기 애니메이션이 이것으로 고른다. 흔한 .clickable-icon 으로 고르면
+    // 패널을 여닫을 때마다 모든 아이콘 버튼 스타일을 다시 계산했다). 리본을 다시 그리면 사라지므로 매번 확인한다
+    if (!Platform.isMobile) {
+      const tgl = ws.containerEl.querySelector(".sidebar-toggle-button.mod-left > .clickable-icon");
+      if (tgl && !tgl.classList.contains("lg-rib-tgl")) tgl.classList.add("lg-rib-tgl");
+    }
     // 휴대폰은 편집창 탭 줄이 없고 뷰 헤더가 그 버튼들을 가진다. 탭 줄 배치를 하면 뷰 헤더의 ⋮ · 읽기 모드 버튼까지 숨는다
     if (!Platform.isPhone) {
       ws.rootSplit.containerEl
@@ -3719,8 +3728,93 @@ module.exports = class GlassShelfPlugin extends Plugin {
       // 맨 위 묶음 탭 줄 맨 앞에 창 끌기 띠 (CSS: .lg-drag-band, 첫 줄만 창을 잡는다). 끌기 영역은 문서 순서대로 겹쳐
       // 뒤에 오는 버튼의 끌기 제외가 띠를 파내므로, 띠는 늘 첫 자식이어야 한다 (사용자 요청)
       if (i === 0) this.keepDragBand(header);
+      // 탭 줄 폭이 바뀌면(패널을 줄이거나 창이 작아지면) 버튼 줄이 들어가는지 다시 본다
+      if (!this.foldWatched) this.foldWatched = new WeakSet();
+      if (!this.foldWatched.has(header)) {
+        this.foldWatched.add(header);
+        let lastW = -1;
+        const ro = new ResizeObserver(() => {
+          const w = header.clientWidth;
+          if (w === lastW) return; // 접고 펴서 높이만 바뀐 것은 건너뛴다
+          lastW = w;
+          this.navFoldCheck(tabsEl);
+        });
+        ro.observe(header);
+        this.register(() => ro.disconnect());
+      }
       this.updateNavMore(tabsEl);
     });
+  }
+
+  // 넓게 모드에서 버튼 줄이 탭 줄 폭에 다 들어가지 않으면 줄을 숨기고 ··· 하나로 묶는다 (사용자 요청: 패널을 줄이거나 창이 작아질 때).
+  // ··· 은 보기의 버튼을 모두 메뉴로 보인다. 잠깐 펴서 버튼 줄에 필요한 폭과 받은 폭을 잰다(그리기 전이라 화면에는 보이지 않는다)
+  navFoldCheck(tabsEl) {
+    const header = tabsEl.querySelector(":scope > .workspace-tab-header-container");
+    const row = header && header.querySelector(":scope > .lg-nav-row");
+    const wide = tabsEl.ownerDocument.body.classList.contains("lg-tab-wide");
+    if (!row || !wide || tabsEl.classList.contains("lg-one") || row.classList.contains("lg-nav-none")) {
+      tabsEl.classList.remove("lg-nav-fold");
+      return;
+    }
+    const was = tabsEl.classList.contains("lg-nav-fold");
+    const more = header.querySelector(":scope > .lg-nav-more");
+    // 펼 때 사라질 ··· 의 자리는 펴기 전에 잰다
+    const moreRect = was && more ? more.getBoundingClientRect() : null;
+    if (was) tabsEl.classList.remove("lg-nav-fold");
+    if (!row.offsetParent) {
+      if (was) tabsEl.classList.add("lg-nav-fold");
+      return;
+    }
+    const parts = Array.from(row.querySelectorAll(":scope > .lg-nav-run, :scope > .lg-nav-rest")).filter((p) => p.childElementCount > 0);
+    const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
+    const need = parts.reduce((sum, p) => sum + p.getBoundingClientRect().width, 0) + gap * Math.max(0, parts.length - 1);
+    const fold = need > row.getBoundingClientRect().width + 0.5;
+    // 바뀔 때 모션 (사용자 요청): 사라지는 쪽은 그 자리에 복제본을 띄워 줄어들며 흐려지게, 나타나는 쪽은 가운데서 퍼져 나오게.
+    // 처음 판단할 때(앱을 켤 때·보기를 처음 그릴 때)는 바로 둔다
+    const animate = tabsEl.lgFoldSeen && fold !== was;
+    tabsEl.lgFoldSeen = true;
+    if (animate && fold) this.foldGhost(row, header, row.getBoundingClientRect());
+    tabsEl.classList.toggle("lg-nav-fold", fold);
+    if (!animate) return;
+    if (fold) {
+      if (more) this.navBtnEnter(more);
+    } else {
+      if (more && moreRect) this.foldGhost(more, header, moreRect);
+      parts.forEach((p) => this.navBtnEnter(p));
+    }
+  }
+
+  // 사라지는 버튼 줄이나 ··· 의 복제본을 그 자리(rect)에 띄워 줄어들며 흐려지게 한 뒤 지운다. 원래 것은 바로 숨는다
+  foldGhost(el, header, rect) {
+    if (!rect || !rect.width) return;
+    const g = el.cloneNode(true);
+    g.classList.add(INJECTED, "lg-fold-ghost");
+    g.removeAttribute("aria-label");
+    g.setAttribute("aria-hidden", "true");
+    header.appendChild(g);
+    const op = g.offsetParent || header;
+    const or = op.getBoundingClientRect();
+    // 숨김 규칙(테마 display: none)보다 인라인 값이 앞선다
+    g.setCssStyles({
+      display: "flex",
+      position: "absolute",
+      margin: "0",
+      left: `${rect.left - or.left - op.clientLeft}px`,
+      top: `${rect.top - or.top - op.clientTop}px`,
+      width: `${rect.width}px`,
+      height: `${rect.height}px`,
+      pointerEvents: "none",
+    });
+    const anim = g.animate(
+      [
+        { transform: "scale(1)", opacity: 1 },
+        { transform: "scale(0.6)", opacity: 0 },
+      ],
+      { duration: 200, easing: EASE.exit, fill: "forwards" }
+    );
+    const done = () => g.remove();
+    anim.onfinish = anim.oncancel = done;
+    window.setTimeout(done, 400);
   }
 
   // 넓게 모드의 버튼 줄: 지금 보기의 버튼(파일 탐색기의 새 노트·정렬 등)을 ··· 메뉴 대신 펼쳐 둔다.
@@ -4058,6 +4152,10 @@ module.exports = class GlassShelfPlugin extends Plugin {
     btn.classList.toggle("lg-nav-more-off", this.navItemsOf(this.activeLeafOf(tabsEl)).length === 0);
     this.renderNavRow(tabsEl);
     this.balanceSide(tabsEl);
+    // 보기가 바뀌어 버튼 수가 달라지면 다시 본다. 버튼이 나타나고 사라지는 애니메이션(약 0.25초)이 끝난 뒤에도 한 번 더
+    this.navFoldCheck(tabsEl);
+    window.clearTimeout(tabsEl.lgFoldTimer);
+    tabsEl.lgFoldTimer = window.setTimeout(() => !this.unloaded && this.navFoldCheck(tabsEl), 300);
   }
 
   openNavMenu(tabsEl, anchor) {

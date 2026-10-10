@@ -139,7 +139,10 @@ body.lg-ui.is-tablet .workspace-drawer {
    - 리본 상자·배경은 움직이지 않고 알약만 옮긴다 (--lg-rib-up = 토글 한 칸 + 간격)
    - 닫힐 때: 알약 유리가 위 끝은 그대로 둔 채 아래로 길어지며 내용만 내려가는 동안 비운 윗자리에 토글 기호가 나타나고,
      다 길어지기 전부터 알약 위 끝이 내려와 토글 원과 알약으로 나뉜다(세 단계가 겹친다). 열릴 때는 그 반대
-   - 여닫는 순간 플러그인이 잠깐 붙이는 body.lg-rib-anim 아래에서만 애니메이션한다 (첫 화면·평소엔 돌지 않게) */
+   - 여닫는 순간 플러그인이 잠깐 붙이는 body.lg-rib-anim 아래에서만 애니메이션한다 (첫 화면·평소엔 돌지 않게)
+   - 토글 버튼과 기호는 고유한 표시(.lg-rib-tgl, 플러그인이 리본 토글 버튼에 붙인다)와 기호 클래스로 고른다. 맨 끝이 태그(svg)나
+     흔한 클래스(.clickable-icon)면 패널을 여닫을 때(.workspace 의 is-left-sidedock-open)마다 브라우저가 화면의 모든 svg·아이콘 버튼
+     스타일을 다시 계산해 휴대폰 서랍 닫기가 약 10ms 느렸다(130개 요소, 트레이스로 확인) */
 .lg-ui {
   --lg-rib-up: calc((var(--lg-btn) + var(--lg-gap)) * -1);
 }
@@ -148,7 +151,7 @@ body.lg-ui.is-tablet .workspace-drawer {
   translate: 0 var(--lg-rib-up);
 }
 
-.lg-ui .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon {
+.lg-ui .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .lg-rib-tgl {
   opacity: 0;
   pointer-events: none;
 }
@@ -162,11 +165,11 @@ body.lg-ui.is-tablet .workspace-drawer {
   animation: lg-rib-down-glass 480ms linear both;
 }
 
-.lg-ui.lg-rib-anim .workspace:not(.is-left-sidedock-open) .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon > svg {
+.lg-ui.lg-rib-anim .workspace:not(.is-left-sidedock-open) .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .lg-rib-tgl > .sidebar-toggle-button-icon {
   animation: lg-rib-tgl-icon-in 480ms both;
 }
 
-.lg-ui.lg-rib-anim .workspace:not(.is-left-sidedock-open) .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon::after {
+.lg-ui.lg-rib-anim .workspace:not(.is-left-sidedock-open) .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .lg-rib-tgl::after {
   animation: lg-rib-tgl-glass-in 480ms both;
 }
 
@@ -175,15 +178,15 @@ body.lg-ui.is-tablet .workspace-drawer {
   animation: lg-rib-up 480ms linear both;
 }
 
-.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon {
+.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .lg-rib-tgl {
   opacity: 1;
 }
 
-.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon > svg {
+.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .lg-rib-tgl > .sidebar-toggle-button-icon {
   animation: lg-rib-tgl-icon-out 480ms linear both;
 }
 
-.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .clickable-icon::after {
+.lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .lg-rib-tgl::after {
   animation: lg-rib-tgl-glass-out 480ms linear both;
 }
 
