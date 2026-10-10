@@ -619,11 +619,11 @@ function migrateGlassLevel(o) {
 
 // 토글 안쪽 여백: 테마처럼 화면 픽셀 단위로 반올림한다 (테마 --lg-tg-pp 는 round() 식이라 계산값을 읽을 수 없다).
 // 테마는 화면 배율을 1/8 구간 값으로 어림하지만 여백 2px 정도는 같은 화면 픽셀로 떨어진다
-function tgPad(cs, win) {
+const tgPad = (cs, win) => {
   const p = parseFloat(cs.getPropertyValue("--lg-tg-pad")) || 2;
   const r = win.devicePixelRatio || 1;
   return Math.round(p * r) / r;
-}
+};
 
 // 이 플러그인이 맞춰진 테마 이름. 이 테마가 켜져 있을 때만 동작한다 (사용자 요청)
 const THEME_NAME = "Glass Shelf";
@@ -914,6 +914,22 @@ module.exports = class GlassShelfPlugin extends Plugin {
     const win = doc.defaultView || window;
     if (!Platform.isMobile) this.attachDragScroll(doc, win);
     this.applyBodyState(doc);
+
+    // 설정 창 등 창(.modal-container)의 드롭다운 줄 표시 (markDropdownRows). body 의 직속 자식만 보고, 창이 붙으면 그 창 안을 지켜본다
+    const watchModal = (m) => {
+      if (!m.classList || !m.classList.contains("modal-container")) return;
+      if (!this.ddWatched) this.ddWatched = new WeakSet();
+      if (this.ddWatched.has(m)) return;
+      this.ddWatched.add(m);
+      this.markDropdownRows(m);
+      const o = new win.MutationObserver(() => this.markDropdownRows(m));
+      o.observe(m, { childList: true, subtree: true });
+      this.observers.push(o);
+    };
+    Array.from(doc.body.children).forEach(watchModal);
+    const bodyObs = new win.MutationObserver((recs) => recs.forEach((r) => r.addedNodes.forEach(watchModal)));
+    bodyObs.observe(doc.body, { childList: true });
+    this.observers.push(bodyObs);
 
     // 파일 탐색기를 마지막으로 눌렀으면 body 에 lg-explorer-on 을 붙인다 (CSS: 선택한 문서가 강조색으로 빛난다).
     // 편집창이나 다른 패널을 누르면 뗀다. 메뉴·창(모달)·알림을 누를 때는 그대로 둔다 (우클릭 메뉴 등).
@@ -3601,6 +3617,52 @@ module.exports = class GlassShelfPlugin extends Plugin {
       }
       this.wcRefract(document, document.body.classList.contains("lg-wc-hover"));
     }
+    this.markStructure();
+  }
+
+  // 테마가 구조로 판정하던 것(:has, 스토어 린트 권고)을 플러그인이 표시로 알린다. 요소가 바뀌면 그 자리에서(그리기 전) 다시 판정한다.
+  // - .lg-solo: 버튼 묶음에 버튼이 하나만 남음(앞으로가 숨은 뒤로·앞으로, 실행 버튼 하나, 칸반 버튼·탭 줄 오른쪽 묶음 하나) → 원 모양
+  // - .lg-tab-single: 편집창 탭 줄에 (닫히는 복제본을 빼고) 탭이 하나뿐 → 트랙 없이 선택 알약만
+  // - .lg-split-multi: 편집창이 나뉨(창 둘 이상 또는 다시 나뉜 묶음) → 분할 구분선 모서리를 그린다
+  markStructure() {
+    for (const doc of this.docs) {
+      if (!doc.body) continue;
+      doc.querySelectorAll(".lg-tab-nav").forEach((el) => this.watchMark(el, "lg-solo", () => !!el.querySelector(":scope > .lg-tab-forward.lg-nav-hide"), true));
+      doc.querySelectorAll(".lg-nav-run").forEach((el) => this.watchMark(el, "lg-solo", () => el.childElementCount === 1 && el.firstElementChild.classList.contains("clickable-icon")));
+      doc.querySelectorAll(".view-actions > .lg-kb-group, .workspace-tab-header-container > .lg-tab-tools").forEach((el) => this.watchMark(el, "lg-solo", () => el.childElementCount === 1));
+      doc.querySelectorAll(".mod-root .workspace-tab-header-container-inner").forEach((el) =>
+        this.watchMark(el, "lg-tab-single", () => el.querySelectorAll(":scope > .workspace-tab-header:not(.lg-tab-leaving)").length < 2, true)
+      );
+      doc.querySelectorAll(".workspace-split.mod-root").forEach((el) =>
+        this.watchMark(el, "lg-split-multi", () => el.querySelectorAll(":scope > .workspace-tabs").length > 1 || !!el.querySelector(":scope > .workspace-split"))
+      );
+    }
+  }
+
+  // el 에 cls 를 test() 결과대로 붙이고, 자식이 바뀌면(attrs: 자식들의 클래스가 바뀌어도) 다시 판정한다. 요소마다 감시는 하나
+  watchMark(el, cls, test, attrs) {
+    if (!this.markWatched) this.markWatched = new WeakMap();
+    const sync = () => el.classList.toggle(cls, !!test());
+    sync();
+    if (this.markWatched.has(el)) return;
+    const win = el.ownerDocument.defaultView || window;
+    const obs = new win.MutationObserver(sync);
+    obs.observe(el, attrs ? { childList: true, subtree: true, attributes: true, attributeFilter: ["class"] } : { childList: true });
+    this.markWatched.set(el, obs);
+    this.observers.push(obs);
+  }
+
+  // 설정 창의 드롭다운 줄 표시 (테마가 :has 로 보던 것): 드롭다운이 든 조작부 .lg-dd-ctrl, 그 줄 .lg-dd-row,
+  // 강조 버튼(.mod-cta, 언어의 숨은 재시작 버튼)이 아닌 버튼도 있으면 .lg-dd-btn. 창이 뜨거나 내용이 바뀌면 그 자리에서(그리기 전) 붙인다
+  markDropdownRows(root) {
+    root.querySelectorAll(".setting-item-control").forEach((c) => {
+      const dd = !!c.querySelector(":scope > .dropdown");
+      c.classList.toggle("lg-dd-ctrl", dd);
+      const row = c.parentElement;
+      if (!row || !row.classList.contains("setting-item")) return;
+      row.classList.toggle("lg-dd-row", dd);
+      row.classList.toggle("lg-dd-btn", dd && !!c.querySelector(":scope > button:not(.mod-cta)"));
+    });
   }
 
   // 사이드바 보기 중 머리 줄(.nav-header)에 버튼 줄 말고 보이는 것이 없는 보기에 lg-bare-head 를 붙인다.
@@ -6432,6 +6494,7 @@ class GlassShelfSettingTab extends PluginSettingTab {
       .setName(tr("색 추가", "Add color"))
       .setClass("lg-settings-sub")
       .setClass("lg-fc-row")
+      .setClass("lg-fc-add-row")
       .addText((t) => t.setPlaceholder(tr("폴더 이름", "Folder name")).onChange((v) => (newName = v.trim())))
       .addColorPicker((c) => c.setValue(newHex).onChange((v) => (newHex = v.toUpperCase())))
       .addButton((btn) =>

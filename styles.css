@@ -1,7 +1,8 @@
 /* Glass Shelf 플러그인: 배치·애니메이션·굴절 담당. 기본 모양은 Glass Shelf 테마가 입힌다 */
 
-.lg-hidden {
-  display: none !important;
+/* 플러그인 상태 클래스는 테마 규칙(가장 강한 것이 :not(#lg) 셋)보다 앞서야 한다. important 선언 대신 :not(#lg) 넷으로 올린다 (스토어 린트 권고) */
+.lg-hidden:not(#lg):not(#lg):not(#lg):not(#lg) {
+  display: none;
 }
 
 .lg-svg-defs {
@@ -39,7 +40,7 @@
 }
 
 /* 버튼 줄 말고 보이는 게 없으면 헤더째 숨긴다. 판정은 플러그인(markBareHeads)이 보기에 lg-bare-head 로 붙인다.
-   :has(… [style*="display: none"]) 로 직접 판정하면 어떤 요소든 인라인 스타일이 바뀔 때마다 다시 판정해,
+   has(… [style*="display: none"]) 로 직접 판정하면 어떤 요소든 인라인 스타일이 바뀔 때마다 다시 판정해,
    파일·개요 항목을 끄는 동안 끌기 표시가 움직일 때마다 스타일 재계산이 약 3ms 늘어 렉이 걸렸다 (측정 확인) */
 .lg-ui .mod-left-split .workspace-leaf-content.lg-bare-head > .nav-header,
 .lg-ui .mod-right-split .workspace-leaf-content.lg-bare-head > .nav-header {
@@ -183,11 +184,11 @@ body.lg-ui.is-tablet .workspace-drawer {
 }
 
 .lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .lg-rib-tgl > .sidebar-toggle-button-icon {
-  animation: lg-rib-tgl-icon-out 480ms linear both;
+  animation: lg-rib-tgl-out 480ms linear both;
 }
 
 .lg-ui.lg-rib-anim .workspace.is-left-sidedock-open .workspace-ribbon:is(.mod-left, .mod-primary) .sidebar-toggle-button.mod-left .lg-rib-tgl::after {
-  animation: lg-rib-tgl-glass-out 480ms linear both;
+  animation: lg-rib-tgl-out 480ms linear both;
 }
 
 /* 알약 내용(닫힐 때): 위에서 내려와 제자리를 살짝 지났다가 돌아온다 */
@@ -293,13 +294,8 @@ body.lg-ui.is-tablet .workspace-drawer {
   100% { translate: 0 calc(var(--lg-rib-up) * 1); scale: 1 1; }
 }
 
-
-@keyframes lg-rib-tgl-icon-out {
-  0% { opacity: 1; }
-  55%, 100% { opacity: 0; }
-}
-
-@keyframes lg-rib-tgl-glass-out {
+/* 토글 기호·유리가 함께 흐려진다 (같은 곡선이라 하나로) */
+@keyframes lg-rib-tgl-out {
   0% { opacity: 1; }
   55%, 100% { opacity: 0; }
 }
@@ -374,15 +370,12 @@ body.lg-ui.is-tablet .workspace-drawer {
   backdrop-filter: var(--lg-refract,) var(--lg-bright,);
 }
 
-
 /* 그래프 설정창이 열리는 동안 토글을 반올림 없이 그리는 장치 (플러그인이 붙였다가 완전히 멈춘 뒤 뗀다).
    변환(translate)이 걸린 상자는 픽셀에 맞춰 반올림되지 않아 트랙과 손잡이가 함께 매끄럽게 움직인다.
    떼면 트랙이 픽셀에 맞춰 다시 그려진다 (전엔 트랙이 반 픽셀 위로 그려진 채 남았다) */
 .checkbox-container.lg-tg-float:not(#lg) {
   translate: 0 0.01px;
 }
-
-
 
 /* ---------- 플러그인 설정 화면 ---------- */
 /* 묶음 제목: 위에 여백을 두어 묶음끼리 나눈다 */
@@ -431,7 +424,6 @@ body.lg-menu-snap .menu:not(.lg-menu-ghost):not(#lg):not(#lg) {
   margin-bottom: 18px;
 }
 
-
 .lg-fc-swatch {
   width: 30px;
   height: 30px;
@@ -457,6 +449,7 @@ body.lg-menu-snap .menu:not(.lg-menu-ghost):not(#lg):not(#lg) {
 }
 
 .lg-fc-custom::after {
+  corner-shape: inherit; /* 붙은 요소의 모양을 따른다 (테마 전역 규칙을 없앴다) */
   content: "";
   position: absolute;
   inset: 6px;
@@ -491,25 +484,11 @@ body.lg-menu-snap .menu:not(.lg-menu-ghost):not(#lg):not(#lg) {
 
 .lg-fc-row .setting-item-name {
   line-height: var(--line-height-tight);
+  font-size: var(--font-ui-small);
 }
 
 .lg-fc-row .setting-item-description:empty {
   display: none;
-}
-
-.lg-fc-row .setting-item-name {
-  font-size: var(--font-ui-small);
-}
-
-/* 휴대폰: Obsidian 은 설정 줄을 세로로 쌓아(이름 위, 칸 아래) 이름이 줄 위쪽에 붙어 보였다 (사용자 지적).
-   폴더 색 줄은 가로 한 줄로 두고 이름을 위아래 가운데에 */
-body.is-phone .modal .setting-item.lg-fc-row:not(#lg) {
-  flex-direction: row;
-  align-items: center;
-}
-
-body.is-phone .modal .setting-item.lg-fc-row:not(#lg) .setting-item-control {
-  width: auto;
 }
 
 /* 지정된 색: 폴더 수는 색 칸 바로 왼쪽에 오른쪽 맞춤 */
@@ -574,47 +553,51 @@ body.is-phone .modal .setting-item.lg-fc-row:not(#lg) .setting-item-control {
   color: var(--interactive-accent);
 }
 
+body.lg-fc-sorting {
+  user-select: none;
+}
+
+/* 커서는 자식이 제 커서를 따로 가지므로 모두에 건다 (끌기를 시작·끝낼 때만 다시 계산된다) */
 body.lg-fc-sorting,
 body.lg-fc-sorting * {
-  user-select: none;
   cursor: grabbing;
 }
 
 /* ---------- 인라인 고정 값 대신 붙이는 상태 클래스 (플러그인이 붙였다 뗀다) ----------
-   예전에는 요소에 인라인 스타일로 넣었다. 인라인은 테마·Obsidian 규칙보다 앞서므로 같은 우선을 지키려고 !important 를 쓴다.
-   WAAPI 애니메이션은 !important 에 지므로, 여기 속성들은 플러그인이 WAAPI 로 움직이지 않는 것만 둔다 */
-.lg-clip {
-  overflow: hidden !important;
+   예전에는 요소에 인라인 스타일로 넣었다. 테마·Obsidian 규칙보다 앞서도록 :not(#lg) 넷으로 우선을 올린다
+   (예전엔 important 선언, 스토어 린트 권고로 바꿈. 이 속성들은 Obsidian 이 인라인으로 넣지 않는다) */
+.lg-clip:not(#lg):not(#lg):not(#lg):not(#lg) {
+  overflow: hidden;
 }
 
-.lg-invisible {
-  visibility: hidden !important;
+.lg-invisible:not(#lg):not(#lg):not(#lg):not(#lg) {
+  visibility: hidden;
 }
 
-.lg-right-auto {
-  right: auto !important;
+.lg-right-auto:not(#lg):not(#lg):not(#lg):not(#lg) {
+  right: auto;
 }
 
-.lg-bottom-auto {
-  bottom: auto !important;
+.lg-bottom-auto:not(#lg):not(#lg):not(#lg):not(#lg) {
+  bottom: auto;
 }
 
 /* 설정 창 뒤로 버튼이 숨을 때 그 자리에 띄우는 사본 (자리·크기는 플러그인이 잰다) */
-.lg-back-ghost {
-  position: fixed !important;
-  left: var(--lg-gx) !important;
-  top: var(--lg-gy) !important;
-  right: auto !important;
-  bottom: auto !important;
-  width: var(--lg-gw) !important;
-  height: var(--lg-gh) !important;
-  margin: 0 !important;
+.lg-back-ghost:not(#lg):not(#lg):not(#lg):not(#lg) {
+  position: fixed;
+  left: var(--lg-gx);
+  top: var(--lg-gy);
+  right: auto;
+  bottom: auto;
+  width: var(--lg-gw);
+  height: var(--lg-gh);
+  margin: 0;
   z-index: calc(var(--layer-modal) + 1);
   pointer-events: none;
 }
 
-.lg-back-hidden {
-  opacity: 0 !important;
+.lg-back-hidden:not(#lg):not(#lg):not(#lg):not(#lg) {
+  opacity: 0;
 }
 
 /* 드롭다운 메뉴가 창보다 길 때: 메뉴 높이는 플러그인이 창 안으로 자르고, 항목 목록은 그 안에서 스크롤한다 */
@@ -629,23 +612,23 @@ body.lg-fc-sorting * {
 }
 
 /* 창이 작은 동안 안의 내용 크기를 고정할 때 (폭·높이는 인라인으로 잰 값) */
-.lg-pinned {
-  flex: none !important;
+.lg-pinned:not(#lg):not(#lg):not(#lg):not(#lg) {
+  flex: none;
 }
 
 /* CSS 전환을 잠깐 끈다 (바꾼 직후 계산값을 읽거나, 처음 나타날 때 제자리에서 시작하게) */
-.lg-no-tr {
-  transition: none !important;
+.lg-no-tr:not(#lg):not(#lg):not(#lg):not(#lg) {
+  transition: none;
 }
 
 /* 같은 대상을 다시 우클릭해 옛 메뉴 자리에서 옮겨 오는 메뉴: 여는 애니메이션을 끈다 */
-.lg-no-anim {
-  animation: none !important;
+.lg-no-anim:not(#lg):not(#lg):not(#lg):not(#lg) {
+  animation: none;
 }
 
-/* 패널 탭 알약 가운데 맞춤 빈칸: 폭 차이가 없을 때 */
-.lg-basis-0 {
-  flex-basis: 0px !important;
+/* 패널 탭 알약 가운데 맞춤 빈칸: 폭 차이가 없을 때 (고정값은 인라인 대입 대신 클래스로, 공식 린트) */
+.lg-basis-0:not(#lg):not(#lg):not(#lg):not(#lg) {
+  flex-basis: 0px;
 }
 
 /* 메뉴 호버 판: 고른 항목이 있으면 보이고 없으면 흐려진다 */
@@ -679,7 +662,7 @@ body.lg-fc-sorting * {
   height: calc(var(--lg-pill-h) * var(--lg-wc-k, 1));
 }
 
-/* 휴대폰 설정: Obsidian 휴대폰 규칙은 설정 줄을 세로로 쌓고 입력칸을 줄 폭 전체로 늘려, 색 고르기 칸이 길게 늘어나고
+/* 휴대폰 설정: Obsidian 휴대폰 규칙은 설정 줄을 세로로 쌓아(이름 위, 칸 아래) 이름이 줄 위쪽에 붙어 보였고, 입력칸을 줄 폭 전체로 늘려 색 고르기 칸이 길게 늘어나고
    팔레트 줄의 손잡이가 다음 줄로 밀려 공간을 낭비했다 (사용자 지적). 폴더 색·팔레트 줄은 한 줄로 두고 색 칸은 작은 원으로 */
 .is-phone .modal .lg-settings .setting-item.lg-fc-row:not(#lg) {
   flex-direction: row;
@@ -709,7 +692,7 @@ body.lg-fc-sorting * {
 
 /* 팔레트 줄·색 추가 줄은 입력칸이 남는 폭을 쓴다 */
 .is-phone .modal .lg-settings .setting-item.lg-fc-pal-row .setting-item-control:not(#lg),
-.is-phone .modal .lg-settings .setting-item.lg-fc-row .setting-item-control:has(input[type="text"]):not(#lg) {
+.is-phone .modal .lg-settings .setting-item.lg-fc-add-row .setting-item-control:not(#lg) {
   flex: 1 1 auto;
 }
 
@@ -743,7 +726,7 @@ body.lg-fc-sorting * {
 }
 
 /* 색 추가 줄: 왼쪽 이름("색 추가")은 글자 폭만 */
-.is-phone .modal .lg-settings .setting-item.lg-fc-row:has(.setting-item-control input[type="text"]) .setting-item-info:not(#lg) {
+.is-phone .modal .lg-settings .setting-item.lg-fc-row:is(.lg-fc-add-row, .lg-fc-pal-row) .setting-item-info:not(#lg) {
   flex: 0 0 auto;
 }
 
