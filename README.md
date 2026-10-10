@@ -102,6 +102,15 @@ Change them in **Settings → Community plugins → Glass Shelf Companion**.
 - On iPhone and iPad, refraction does not work, so only blur is applied.
 - macOS has not been tested thoroughly, so some details may look off.
 
+<p align="center">
+  <img src="images/mobile-light.png" width="32%" alt="Mobile, light mode">
+  <img src="images/mobile-dark.png" width="32%" alt="Mobile, dark mode">
+</p>
+
+<p align="center">
+  <img src="images/mobile-tab-switch.gif" width="60%" alt="Mobile bottom tab lens switching">
+</p>
+
 ## Privacy
 
 This plugin makes no network requests and only changes the Obsidian interface. It does not read or send your notes.

@@ -102,6 +102,15 @@
 - iPhone·iPad에서는 굴절 효과가 작동하지 않아, 대신 흐림(블러) 처리만 적용됩니다.
 - macOS는 충분히 테스트하지 못해 일부 표현이 어색할 수 있습니다.
 
+<p align="center">
+  <img src="images/mobile-light.png" width="32%" alt="모바일 라이트 모드">
+  <img src="images/mobile-dark.png" width="32%" alt="모바일 다크 모드">
+</p>
+
+<p align="center">
+  <img src="images/mobile-tab-switch.gif" width="60%" alt="모바일 하단 탭 렌즈 전환">
+</p>
+
 ## 개인정보
 
 이 플러그인은 네트워크 요청을 하지 않고, Obsidian 화면만 바꿉니다. 노트 내용을 읽거나 보내지 않습니다.
