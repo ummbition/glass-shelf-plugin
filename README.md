@@ -4,7 +4,9 @@
 
 Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-shelf-theme). It adds button layout, motion and refraction on top of the glass surfaces drawn by the theme.
 
-> **Requires the Glass Shelf theme.** This plugin only runs while Glass Shelf is the active theme. With any other theme it changes nothing.
+> [!IMPORTANT]
+> ### Requires the Glass Shelf theme
+> This plugin only runs while Glass Shelf is the active theme. With any other theme it changes nothing.
 
 <p align="center">
   <img src="images/light-main.png" width="49%" alt="Light mode">
@@ -18,7 +20,7 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
 - Shows the current note's "folder / file" path above the tab bar
 - Moves the web viewer's address bar, reload and reading-mode buttons into the tab bar
 - Collapses the tab bar to the note title when you scroll down (Safari style)
-- Lens effect when switching panel tabs, wide tab bar, tab names
+- Lens or list layout for panel tabs, wide tab bar, tab names
 - Shrinks the Windows and Linux window controls into small dots
 
 ![Panel tab lens switching](images/tab-switch.gif)
@@ -32,7 +34,7 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
 
 ### Details
 - Task checkbox style and color
-- Folder icon color in the file explorer and a per-folder color palette
+- File explorer icon style (Finder-like default, none, or simple folder-only icons), folder icon color and a per-folder color palette
 - Striped rows in the file explorer, line under headings
 - iOS-style colors for toggles and sliders
 
@@ -84,7 +86,8 @@ Change them in **Settings → Community plugins → Glass Shelf Companion**.
 
 | Setting | What it does |
 |---|---|
-| Tab switch effect | A lens that slides between tabs, or a plain accent-colored pill |
+| Tab switch effect | Lens: a lens slides between tabs / None: a plain accent-colored pill / List (desktop, tablet): one tab per row |
+| Panels using the list | With the list, choose the left panel, the right panel, or both |
 | Wide tab bar | Stretches the panel tab pill from edge to edge |
 | Show tab names | Puts the name next to each panel tab icon |
 | Show path | "Folder / file" path above the editor tab bar |

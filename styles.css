@@ -354,18 +354,35 @@ body.lg-ui.is-tablet .workspace-drawer {
   corner-shape: inherit;
 }
 
+/* 패널 탭 줄 알약을 화면 픽셀 경계에 맞추는 이동 (플러그인 snapTabBars) */
+.workspace-split.mod-sidedock .workspace-tab-header-container-inner {
+  position: relative;
+  top: var(--lg-snap-y, 0px);
+}
+
+/* 라이트: 렌즈만 초승달·외곽선을 알약보다 진하게 (탭 렌즈 조율기에서 사용자가 고른 값). 다크는 테마 값(외곽선 없음, 초승달 0.7) 그대로 */
+/* 테마 테두리 토큰은 body 에서 값이 정해져 진하기 변수만 바꿔서는 안 바뀐다. 그래서 같은 짜임을 진하기만 바꿔 다시 쓴다 */
+body:not(.theme-dark) .lg-seg-lens {
+  box-shadow:
+    0 0 0 var(--lg-ol-w) rgb(0 0 0 / 0.22),
+    inset var(--lg-cres-x) 0 0 -0.5px rgb(0 0 0 / 0.4),
+    inset calc(var(--lg-cres-x) * -1) 0 0 -0.5px rgb(0 0 0 / 0.4),
+    var(--lg-rim-in-plain, var(--lg-rim-in)),
+    0 6px 6px 2px rgb(0 0 0 / 0.06), inset 0 6px 6px 2px rgb(0 0 0 / 0.06);
+}
+
 .lg-seg-flat {
   background-color: rgb(var(--lg-ink, 0 0 0) / var(--lg-select-a, 0.07));
   opacity: calc(1 - var(--lg-g));
 }
 
-/* 렌즈 층: 채움 없이 완전히 투명한 유리. 테두리·그림자는 다른 유리 버튼과 같은 토큰, 뒤 배경은 굴절만.
+/* 렌즈 층: 채움 없이 완전히 투명한 유리. 테두리는 다른 유리 버튼과 같은 토큰, 그림자는 같은 고리 그림자를 더 진하게(사용자 요청), 뒤 배경은 굴절만.
    색조(--lg-tone)는 걸지 않는다: 걸면 뒤 기호가 바탕색으로 옅어져 뿌연 알약처럼 보이고 굴절도 안 보인다 (사용자 지적) */
 .lg-seg-lens {
   opacity: var(--lg-g);
   background: transparent;
   /* 틴트는 받지 않는다: 원래 테두리 (사용자 요청) */
-  box-shadow: var(--lg-rim-out-plain, var(--lg-rim-out)), var(--lg-rim-in-plain, var(--lg-rim-in)), var(--lg-shadow);
+  box-shadow: var(--lg-rim-out-plain, var(--lg-rim-out)), var(--lg-rim-in-plain, var(--lg-rim-in)), 0 6px 6px 2px rgb(0 0 0 / 0.06), inset 0 6px 6px 2px rgb(0 0 0 / 0.06);
   -webkit-backdrop-filter: var(--lg-refract,) var(--lg-bright,);
   backdrop-filter: var(--lg-refract,) var(--lg-bright,);
 }
@@ -378,11 +395,6 @@ body.lg-ui.is-tablet .workspace-drawer {
 }
 
 /* ---------- 플러그인 설정 화면 ---------- */
-/* 묶음 제목: 위에 여백을 두어 묶음끼리 나눈다 */
-.lg-settings .setting-item.lg-settings-group {
-  margin-top: 28px;
-}
-
 /* 하위 항목(위 설정을 켜거나 고르면 생기는 것): 왼쪽으로 들이고 옅은 세로 선으로 위 설정에 묶는다 */
 .lg-settings .setting-item.lg-settings-sub {
   margin-inline-start: 20px;
@@ -397,7 +409,7 @@ body.lg-menu-snap .menu:not(.lg-menu-ghost):not(#lg):not(#lg) {
 }
 
 /* ---------- 폴더 색 (플러그인이 색 지정 폴더에 .lg-fc 와 --lg-fc·--lg-folder-icon 을 붙인다) ----------
-   하위 폴더는 변수를 물려받아 같은 색: 폴더 이름 글자·펼침 화살표·들여쓰기 세로줄·폴더 기호. 배경은 칠하지 않는다 (사용자 요청).
+   하위 폴더는 변수를 물려받아 같은 색: 펼침 화살표·들여쓰기 세로줄·폴더 기호. 폴더 이름 글자는 색을 넣지 않는다(애플식, 사용자 요청). 배경은 칠하지 않는다 (사용자 요청).
    선택된 줄(강조색 바탕)의 글자는 테마가 정한 잉크를 그대로 쓴다 */
 .nav-folder.lg-fc {
   --nav-indentation-guide-color: var(--lg-fc);
@@ -406,7 +418,7 @@ body.lg-menu-snap .menu:not(.lg-menu-ghost):not(#lg):not(#lg) {
   --nav-collapse-icon-color-collapsed: var(--lg-fc);
 }
 
-.lg-fc .nav-folder-title:not(.is-active):not(.is-selected):not(.is-being-dragged) :is(.nav-folder-title-content, .collapse-icon, .collapse-icon svg) {
+.lg-fc .nav-folder-title:not(.is-active):not(.is-selected):not(.is-being-dragged) :is(.collapse-icon, .collapse-icon svg) {
   color: var(--lg-fc);
 }
 
@@ -649,6 +661,44 @@ body.lg-fc-sorting * {
   opacity: 0;
 }
 
+/* 탭 렌즈 글자 전용 굴절 층 (플러그인 SegmentLens.textLens): 렌즈 자리에 탭 복사본을 렌즈 모양으로 잘라 렌즈 위에 올린다 */
+.lg-seg-text {
+  position: absolute;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.lg-seg-text.lg-seg-text-off {
+  display: none;
+}
+
+.lg-seg-text > div {
+  position: absolute;
+}
+
+.lg-seg-text .workspace-tab-header:not(#lg):not(#lg) {
+  position: absolute;
+  margin: 0;
+  background: none;
+  box-shadow: none;
+  transform: none;
+  transform-origin: 0 0; /* 누름 배율은 플러그인이 인라인 transform 으로 건다 */
+}
+
+/* 복사본 이름은 말줄임하지 않는다: 원래 탭 폭이 이름 길이에 딱 맞는 좁은 패널에서 소수 오차만큼만 모자라도 "모든 속..."으로 잘렸다 (사용자 지적).
+   복사본은 렌즈 모양으로 잘려 보이므로 넘쳐도 상관없다 */
+.lg-seg-text .workspace-tab-header-inner-title:not(#lg):not(#lg):not(#lg) {
+  overflow: visible;
+  text-overflow: clip;
+  max-width: none;
+}
+
+.lg-seg-text .workspace-tab-header:not(#lg):not(#lg)::before,
+.lg-seg-text .workspace-tab-header:not(#lg):not(#lg)::after {
+  content: none;
+}
+
 /* 창 제어 알약 크기 재기용 임시 요소 */
 .lg-wc-probe:not(#lg):not(#lg) {
   position: absolute;
@@ -773,3 +823,15 @@ body.lg-fc-sorting * {
   height: var(--lg-ph);
   pointer-events: none;
 }
+
+/* 닫힌 패널 검색창의 복사본: 원래 자리(보기 안 좌표)에 떠서 줄며 흐려진다. 움직임은 플러그인(WAAPI) */
+.lg-search-ghost {
+  position: absolute;
+  top: var(--lg-gy);
+  left: var(--lg-gx);
+  width: var(--lg-gw);
+  margin: 0;
+  z-index: 4;
+  pointer-events: none;
+}
+

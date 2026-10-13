@@ -1,0 +1,16 @@
+{
+  "name": "glass-shelf-build",
+  "private": true,
+  "type": "commonjs",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "check": "tsc --noEmit -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.25.12",
+    "obsidian": "^1.13.1",
+    "typescript": "^5.9.3"
+  }
+}
