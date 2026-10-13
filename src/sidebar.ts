@@ -1244,7 +1244,9 @@ export const sidebarMethods = {
     this.segWatched.add(tabsEl);
 
     const lens = new SegmentLens(header, inner, this);
-    lens.prebake(inner.querySelector<HTMLElement>(":scope > .workspace-tab-header.is-active"));
+    // 묶음의 모든 탭을 미리 굽는다: 렌즈 크기는 도착 탭 폭에 따르므로 선택 탭만 구우면 폭이 다른 탭으로 갈 때 전환 중에 구웠다
+    // (데스크톱 측정: 전환 한 번에 지도 11장, 91·157ms 긴 작업)
+    lens.prebakeAll();
     // 알약이 좁아 탭이 스크롤되면 유리 층(::after)이 따라 밀리지 않게 되돌려 둔다
     this.registerDomEvent(inner, "scroll", () => inner.style.setProperty("--lg-sx", `${inner.scrollLeft}px`), { passive: true });
     // 패널을 닫았다 열거나 폭이 바뀌면 가운데 맞춤을 다시 잰다. 닫힌 동안 잰 값(버튼이 안 보여 0)이 남아
@@ -1267,7 +1269,10 @@ export const sidebarMethods = {
       const cur = current();
       if (cur && last && cur !== last && last.isConnected && inner.children.length > 1) lens.moveTo(last, cur);
       if (cur !== last) this.updateNavMore(tabsEl);
-      else this.renderNavRow(tabsEl); // 탭이 생기거나 사라졌을 때 (lg-one)
+      else {
+        this.renderNavRow(tabsEl); // 탭이 생기거나 사라졌을 때 (lg-one)
+        lens.prebakeAll(); // 새 탭 폭의 지도를 쉬는 틈에 미리 굽는다 (같은 크기는 건너뛴다)
+      }
       last = cur;
     });
     obs.observe(inner, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });

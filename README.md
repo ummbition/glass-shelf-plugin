@@ -118,6 +118,8 @@ Change them in **Settings → Community plugins → Glass Shelf Companion**.
 
 This plugin makes no network requests and only changes the Obsidian interface. It does not read or send your notes.
 
+In web viewer tabs it injects a small script into the open page to read the position and background color of bars fixed to the top of the page and align them with the tab bar. It does not store or send page content.
+
 ## Support
 
 If you enjoy Glass Shelf, you can support it with a coffee.

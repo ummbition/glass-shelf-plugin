@@ -22,24 +22,16 @@ export const foldersMethods = {
     b.style.setProperty("--lg-folder-icon", folderIconUrl(rgb));
   },
 
-  // ---------- 폴더 색 (폴더 컬러 매니저 플러그인 기능을 옮겨 옴) ----------
+  // ---------- 폴더 색 ----------
   // 색은 폴더 이름 기준: 공유 설정(data.json)의 folderColorsByName { 폴더 이름: "#hex" }. 이름이 같은 폴더는 어디에 있든
   // (최상위 포함) 같은 색이고, 같은 이름으로 새로 만든 폴더도 바로 그 색이 된다 (사용자 요청. PARA 범주마다 같은 분야 폴더가 생긴다).
-  // 예전 경로 기준(folderColors)이나 폴더 컬러 매니저의 data.json 에서 한 번 옮겨 온다.
+  // 예전 경로 기준(folderColors)은 한 번 이름 기준으로 옮긴다.
   // 파일 탐색기의 색 지정 폴더(.nav-folder)에 lg-fc 클래스와 변수(--lg-fc 색, --lg-folder-icon 그 색 기호)를 붙이면
   // 하위 폴더는 변수를 물려받아 같은 색이 된다 (하위에 따로 지정한 색이 있으면 그 색). 글자·화살표·세로줄은 CSS(styles.css)가 칠한다.
   // :has() 로 경로를 찾지 않으려고 플러그인이 요소에 직접 붙인다 (넓은 범위 :has 는 끌기 렉)
   async setupFolderColors(this: GlassShelfPlugin, raw: RawSettings) {
     if (!raw.folderColorsByName || typeof raw.folderColorsByName !== "object") {
-      let byPath: Record<string, string> | null | undefined = raw.folderColors && typeof raw.folderColors === "object" ? raw.folderColors : null;
-      if (!byPath) {
-        try {
-          const p = `${this.app.vault.configDir}/plugins/folder-color-manager/data.json`;
-          if (await this.app.vault.adapter.exists(p)) byPath = ((JSON.parse(await this.app.vault.adapter.read(p)) as { folderColors?: Record<string, string> } | null) || {}).folderColors;
-        } catch (e) {
-          console.error("[glass-shelf] folder colors import", e);
-        }
-      }
+      const byPath: Record<string, string> | null = raw.folderColors && typeof raw.folderColors === "object" ? raw.folderColors : null;
       const byName: Record<string, string> = {};
       for (const [path, hex] of Object.entries(byPath || {})) if (hexToRgb(hex)) byName[path.split("/").pop() || path] = hex;
       this.shared.folderColorsByName = byName;
@@ -214,7 +206,8 @@ export const foldersMethods = {
   // 폭은 목록 안쪽 폭에서 맨 위 단계 줄의 좌우 여백을 뺀 값 (스크롤바가 생겨도 무늬 폭이 줄 폭을 따라 들쭉날쭉하지 않게).
   // 설정에서 끄면(fileStripes) 층을 비운다
   applyStripes(this: GlassShelfPlugin, list: HTMLElement) {
-    this.rowExtent(list);
+    // 줄 자리는 rowExtent 가 잰 것을 그대로 쓴다 (줄마다 두 번 재던 것을 한 번으로. 스크롤 중 보이는 줄이 바뀔 때마다 돈다)
+    const m = this.rowExtent(list);
     let layer = list.querySelector<HTMLElement>(":scope > .lg-stripes");
     // 모바일에서는 줄무늬를 쓰지 않는다 (사용자 요청, 설정에서도 숨긴다)
     if (!this.settings.fileStripes || Platform.isMobile) {
@@ -228,9 +221,7 @@ export const foldersMethods = {
     }
     list.classList.add("lg-has-stripes");
     if (!this.stripeBars) this.stripeBars = new WeakMap();
-    const rows = els(list.querySelectorAll<HTMLElement>(".tree-item-self")).filter((r) => r.getClientRects().length);
-    const lr = list.getBoundingClientRect();
-    const rects = rows.map((r) => r.getBoundingClientRect());
+    const rows = m.rows, rects = m.rects, lr = m.lr;
     const top = (rc: DOMRect) => rc.top - lr.top + list.scrollTop;
     let step = list.lgStripeStep || 0;
     if (!step) {
@@ -247,7 +238,7 @@ export const foldersMethods = {
     // 폭: 왼쪽은 목록 왼쪽 끝에서 알약 간격(--lg-gap)만큼 띄운 자리(줄 하이라이트와 같은 자리), 오른쪽은 목록 안쪽 끝(스크롤바 칸 왼쪽 끝)까지.
     // 막대와의 거리가 막대 둘레 테두리(창 가장자리와의 거리와 같다)가 된다 (사용자 요청)
     // 왼쪽 끝은 줄마다 같다: 반복문 밖에서 한 번만 읽는다 (막대를 쓰는 사이에 스타일을 읽으면 줄마다 다시 계산했다, 검토 지적)
-    const bl = this.rowGapLeft(list);
+    const bl = m.gl;
     const keep = new Set();
     rows.forEach((r, i) => {
       if ((k0 + i) % 2 !== 1) return;
@@ -289,23 +280,33 @@ export const foldersMethods = {
 
   // 줄 하이라이트(CSS: 파일 탐색기 .tree-item-self::before)를 줄무늬와 같은 폭으로: 왼쪽은 목록 왼쪽 끝에서 알약 간격(--lg-gap),
   // 오른쪽은 목록 안쪽 끝(스크롤바 칸 왼쪽 끝)까지. 맨 위 단계 줄(가장 넓은 줄)로 잰다 (사용자 요청)
-  rowExtent(this: GlassShelfPlugin, list: HTMLElement) {
+  // 보이는 줄과 그 자리를 돌려준다 (applyStripes 가 같은 측정을 쓴다)
+  rowExtent(this: GlassShelfPlugin, list: HTMLElement): { rows: HTMLElement[]; rects: DOMRect[]; lr: DOMRect; gl: number } {
     const lr = list.getBoundingClientRect();
     const gl = this.rowGapLeft(list);
     // 줄마다 왼쪽 끝이 1px 씩 다를 수 있어, 왼쪽 늘림은 줄마다 정한다 (보이는 줄만. 새로 그려지는 줄은 감시가 다시 부른다)
     let wide: DOMRect | null = null;
+    const rows: HTMLElement[] = [];
+    const rects: DOMRect[] = [];
+    // 읽기(자리)를 먼저 모두 하고 쓰기(--lg-row-ext-l)는 그다음에: 번갈아 하면 줄마다 스타일을 다시 계산한다
     for (const r of list.querySelectorAll<HTMLElement>(".tree-item-self")) {
       const rc = r.getBoundingClientRect();
       if (!rc.width) continue;
+      rows.push(r);
+      rects.push(rc);
       if (!wide || rc.width > wide.width) wide = rc;
-      const l = `${Math.round((rc.left - lr.left - gl) * 10) / 10}px`;
-      if (r.style.getPropertyValue("--lg-row-ext-l") !== l) r.style.setProperty("--lg-row-ext-l", l);
     }
-    if (!wide) return;
+    rows.forEach((r, i) => {
+      const l = `${Math.round((rects[i].left - lr.left - gl) * 10) / 10}px`;
+      if (r.style.getPropertyValue("--lg-row-ext-l") !== l) r.style.setProperty("--lg-row-ext-l", l);
+    });
+    const out = { rows, rects, lr, gl };
+    if (!wide) return out;
     // 모바일은 스크롤바가 자리를 차지하지 않아 목록 안쪽 끝이 패널 끝이다. 왼쪽처럼 알약 간격만큼 띄운다 (사용자 요청, 태블릿)
     const right = Math.max(0, lr.left + list.clientLeft + list.clientWidth - wide.right - (Platform.isMobile ? gl : 0));
     const rr = `${Math.round(right * 10) / 10}px`;
     if (list.style.getPropertyValue("--lg-row-ext-r") !== rr) list.style.setProperty("--lg-row-ext-r", rr);
+    return out;
   },
 
   // 줄무늬·줄 하이라이트의 왼쪽 끝: 목록 왼쪽 끝에서 알약 간격(--lg-gap) (사용자 요청)

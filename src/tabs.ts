@@ -318,6 +318,11 @@ export const tabsMethods = {
         delete header.lgBalanceObs;
       });
     }
+    // 같은 프레임에 두 번 부르지 않는다: 크기 감시(ResizeObserver)와 매 프레임 맞춤(step)이 겹쳐 한 프레임에 여러 번 돌았다
+    // (데스크톱 측정: 탭을 열고 닫는 1.4초에 57번, 계산된 스타일 읽기 700번)
+    const now = (header.ownerDocument.defaultView || window).performance.now();
+    if (header.lgBalanceAt != null && now - header.lgBalanceAt < 4) return;
+    header.lgBalanceAt = now;
     const hr = header.getBoundingClientRect();
     const cs = getComputedStyle(header);
     // 경로 표시를 켜면 탭 줄은 둘째 줄이고, 첫 줄 가운데에 둘 것은 경로 줄이다.
@@ -327,11 +332,16 @@ export const tabsMethods = {
     const anchor = !Platform.isPhone && path && (stacked || this.settings.showPath) ? path : inner;
     // 화면 순서로 늘어놓는다: 왼쪽 패널 버튼·리본 메뉴는 CSS order 로 맨 앞에 오지만 문서 순서로는 뒤로·앞으로 다음에 있어,
     // 문서 순서로 보면 왼쪽 무리의 끝을 잘못 잡아 경로 알약이 오른쪽으로 치우쳤다 (태블릿, 사용자 지적)
+    // 자식마다 계산된 스타일은 한 번만 읽는다 (position·order·marginRight)
+    const styles = new Map<HTMLElement, CSSStyleDeclaration>();
+    const styleOf = (c: HTMLElement) => {
+      let v = styles.get(c);
+      if (!v) styles.set(c, (v = getComputedStyle(c)));
+      return v;
+    };
     const kids = els(header.children)
-      .filter(
-        (c) => c !== sp && (anchor === inner || c !== inner) && !c.classList.contains("lg-slab") && !c.classList.contains("lg-seg-indicator") && c.getClientRects().length && getComputedStyle(c).position !== "absolute"
-      )
-      .map((c, k) => ({ c, k, o: parseFloat(getComputedStyle(c).order) || 0 }))
+      .filter((c) => c !== sp && (anchor === inner || c !== inner) && !c.classList.contains("lg-slab") && !c.classList.contains("lg-seg-indicator") && c.getClientRects().length && styleOf(c).position !== "absolute")
+      .map((c, k) => ({ c, k, o: parseFloat(styleOf(c).order) || 0 }))
       .sort((a, b) => a.o - b.o || a.k - b.k)
       .map((x) => x.c);
     const i = kids.indexOf(anchor);
@@ -346,7 +356,7 @@ export const tabsMethods = {
     const rights = kids.slice(i + 1).filter((c) => box(c).width > 0.5);
     // 왼쪽 무리의 끝은 요소들의 (오른쪽 끝 + 오른쪽 여백) 중 가장 큰 값 (사라지는 뒤로·앞으로 알약은 음수 여백으로 자리를 거둬들인다).
     // 오른쪽 무리의 시작은 요소들의 왼쪽 끝 중 가장 작은 값
-    const L = lefts.length ? Math.max(...lefts.map((c) => box(c).right + (parseFloat(getComputedStyle(c).marginRight) || 0))) : parseFloat(cs.paddingLeft);
+    const L = lefts.length ? Math.max(...lefts.map((c) => box(c).right + (parseFloat(styleOf(c).marginRight) || 0))) : parseFloat(cs.paddingLeft);
     const R = hr.width - (rights.length ? Math.min(...rights.map((c) => box(c).left)) : hr.width - parseFloat(cs.paddingRight));
     const diff = R - L;
     // 빈칸은 자기 옆 간격(gap)을 CSS 에서 되돌려 받으므로 폭 차이 그대로

@@ -734,7 +734,8 @@ var Refractor = class {
     const E = lens.edge;
     const R = lens.reach;
     const S = lens.shape || 2;
-    const RXR = parseFloat(getComputedStyle(document.body).getPropertyValue("--lg-pill-rx")) || 0.5;
+    if (this.rxr == null) this.rxr = parseFloat(getComputedStyle(document.body).getPropertyValue("--lg-pill-rx")) || 0.5;
+    const RXR = this.rxr;
     const L = 1 - T;
     const f = (t) => {
       if (t <= T) return (M - 1) * t;
@@ -2557,11 +2558,15 @@ var lensMotion = function(u, reach) {
 };
 var LENS_CLEAR_K = 2.2;
 var LENS_TG_TALL = 3;
+var scaleOf = (ow, r) => ow && Math.abs(r.width - ow) >= 1 ? r.width / ow : 1;
+var CLONE_BOX = ["display", "flex-direction", "flex-wrap", "align-items", "justify-content", "gap", "padding", "font-size", "font-weight", "line-height", "letter-spacing", "text-align", "white-space"];
+var CLONE_SIZE = ["width", "height", "min-width", "margin", "flex-grow", "flex-shrink", "flex-basis", "align-self", "order"];
 var TAB_LENS_MS = 80;
 var TAB_PRESS_K = 0.5;
 var TAB_LENS_W = 1.2;
 var TAB_GROW_MS = 90;
 var TAB_GROW_FWD = 9;
+var MOBILE_TAB_GROW_FWD = 0;
 var TAB_LENS_H2 = 1.2;
 var TAB_SHRINK_MS = 280;
 var TAB_SQUASH = 0.5;
@@ -2598,6 +2603,18 @@ var SegmentLens = class {
     const r = tab.getBoundingClientRect();
     return { cx: r.left - hr.left + r.width / 2, cy: r.top - hr.top + r.height / 2, w: r.width, h: r.height };
   }
+  measure() {
+    const hr = this.header.getBoundingClientRect();
+    const innerH = this.inner.getBoundingClientRect().height;
+    const tabs = [];
+    for (const tab of Array.from(this.inner.querySelectorAll(":scope > .workspace-tab-header"))) {
+      const tr2 = tab.getBoundingClientRect();
+      if (!tr2.width) continue;
+      const ti = tab.querySelector(":scope > .workspace-tab-header-inner");
+      tabs.push({ tab, ti, tr: tr2, tir: ti ? ti.getBoundingClientRect() : null, ow: tab.offsetWidth, tiow: ti ? ti.offsetWidth : 0 });
+    }
+    return { hr, innerH, tabs };
+  }
   moveTo(fromTab, toTab) {
     if (this.plugin.tabPlain() || this.header.closest(".lg-tab-list")) return this.stop();
     if (!fromTab.getBoundingClientRect().width || !toTab.getBoundingClientRect().width) return;
@@ -2630,79 +2647,106 @@ var SegmentLens = class {
   // 렌즈 안 글자는 탭 줄과 따로 굴절한다 (사용자 요청: 한 굴절로 같이 휘면 가운데 선 방식에서 글자가 옆으로 늘어진다).
   // 원래 탭 글자(.workspace-tab-header-inner)는 렌즈 모양만큼 잘라 숨겨 렌즈 유리가 탭 줄만 떠 오게 하고,
   // 렌즈 자리에 탭 복사본을 렌즈 모양으로 잘라 올려 글자 전용 굴절(LENS_TAB_TEXT)을 건다. 굴절 세기는 렌즈 정도 g 를 따른다
-  textLens(x0, y0, vw, vh, g) {
-    const tabs = Array.from(this.inner.querySelectorAll(":scope > .workspace-tab-header")).filter((t) => t.offsetWidth > 0);
+  textLens(x0, y0, vw, vh, g, m) {
+    const tabs = m.tabs.map((x) => x.tab);
     if (!this.refract || g <= 0 || !tabs.length) return this.textOff();
-    const hr = this.header.getBoundingClientRect();
+    const hr = m.hr;
     const r = vh / 2;
     const n = (v2) => v2.toFixed(2);
-    const sc = this.inner.offsetWidth ? this.inner.getBoundingClientRect().width / this.inner.offsetWidth : 1;
-    for (const tab of tabs) {
-      const ti = tab.querySelector(":scope > .workspace-tab-header-inner");
-      if (!ti) continue;
-      const tr2 = ti.getBoundingClientRect();
-      const ax = (x0 - (tr2.left - hr.left)) / sc;
-      const ay = (y0 - (tr2.top - hr.top)) / sc;
-      const w = vw / sc, h = vh / sc, rr = r / sc;
-      ti.style.clipPath = `path(evenodd, "M-9999 -9999H9999V9999H-9999Z M${n(ax + rr)} ${n(ay)}H${n(ax + w - rr)}A${n(rr)} ${n(rr)} 0 0 1 ${n(ax + w - rr)} ${n(ay + h)}H${n(ax + rr)}A${n(rr)} ${n(rr)} 0 0 1 ${n(ax + rr)} ${n(ay)}Z")`;
+    const put = (el, k, v2) => {
+      if (el.style.getPropertyValue(k) !== v2) el.style.setProperty(k, v2);
+    };
+    for (const x of m.tabs) {
+      const ti = x.ti, tr2 = x.tir;
+      if (!ti || !tr2) continue;
+      const L = tr2.left - hr.left, T = tr2.top - hr.top;
+      if (L > x0 + vw || L + tr2.width < x0 || T > y0 + vh || T + tr2.height < y0) {
+        if (ti.style.getPropertyValue("clip-path")) ti.style.removeProperty("clip-path");
+        continue;
+      }
+      const ks = scaleOf(x.tiow, tr2);
+      const ax = (x0 - L) / ks;
+      const ay = (y0 - T) / ks;
+      const w = vw / ks, h = vh / ks, rr = r / ks;
+      put(ti, "clip-path", `path(evenodd, "M-9999 -9999H9999V9999H-9999Z M${n(ax + rr)} ${n(ay)}H${n(ax + w - rr)}A${n(rr)} ${n(rr)} 0 0 1 ${n(ax + w - rr)} ${n(ay + h)}H${n(ax + rr)}A${n(rr)} ${n(rr)} 0 0 1 ${n(ax + rr)} ${n(ay)}Z")`);
     }
     if (!this.textEl || !this.textEl.isConnected) {
       this.textEl = this.header.createDiv({ cls: ["lg-seg-text", INJECTED] });
       this.textInner = this.textEl.createDiv();
       this.textSig = "";
     }
-    const sig = tabs.map((t) => t.hasClass("is-active") ? "1" : "0").join("");
+    const sig = tabs.map((t) => t.getAttribute("aria-label") || t.textContent || "").join("");
+    const actSig = tabs.map((t) => t.hasClass("is-active") ? "1" : "0").join("");
+    const pairs = (tab, c) => {
+      const src = [tab, ...Array.from(tab.querySelectorAll("*"))];
+      const dst = [c, ...Array.from(c.querySelectorAll("*"))];
+      return src.map((s2, i) => [s2, dst[i]]).filter(([, d]) => !!d);
+    };
+    const copyInk = (tab, c) => {
+      c.classList.toggle("is-active", tab.hasClass("is-active"));
+      for (const [s2, d] of pairs(tab, c)) {
+        if (s2.closest("svg") && s2.tagName.toLowerCase() !== "svg") continue;
+        const cs = getComputedStyle(s2);
+        d.style.color = cs.color;
+        d.style.opacity = cs.opacity;
+      }
+    };
     if (sig !== this.textSig) {
       this.textSig = sig;
+      this.textAct = actSig;
       this.textInner.empty();
       for (const tab of tabs) {
         const c = tab.cloneNode(true);
-        const src = [tab, ...Array.from(tab.querySelectorAll("*"))];
-        const dst = [c, ...Array.from(c.querySelectorAll("*"))];
-        src.forEach((s2, i) => {
-          const d = dst[i];
-          if (!d) return;
+        pairs(tab, c).forEach(([s2, d], i) => {
+          d.style.removeProperty("clip-path");
+          if (s2.closest("svg") && s2.tagName.toLowerCase() !== "svg") return;
           const cs = getComputedStyle(s2);
           d.style.color = cs.color;
           d.style.opacity = cs.opacity;
-          d.style.removeProperty("clip-path");
+          for (const k of i === 0 ? CLONE_BOX : [...CLONE_BOX, ...CLONE_SIZE]) d.style.setProperty(k, cs.getPropertyValue(k));
         });
         this.textInner.appendChild(c);
       }
+    } else if (actSig !== this.textAct) {
+      this.textAct = actSig;
+      const cl = Array.from(this.textInner.children);
+      tabs.forEach((tab, i) => cl[i] && copyInk(tab, cl[i]));
     }
     const clones = Array.from(this.textInner.children);
-    tabs.forEach((tab, i) => {
+    m.tabs.forEach((x, i) => {
       const c = clones[i];
       if (!c) return;
-      const tr2 = tab.getBoundingClientRect();
-      c.style.left = `${(tr2.left - hr.left).toFixed(3)}px`;
-      c.style.top = `${(tr2.top - hr.top).toFixed(3)}px`;
-      c.style.width = `${(tr2.width / sc).toFixed(3)}px`;
-      c.style.height = `${(tr2.height / sc).toFixed(3)}px`;
-      c.style.transform = sc !== 1 ? `scale(${sc.toFixed(4)})` : "";
-      for (const k of ["--lg-mx", "--lg-my"]) {
-        const v2 = tab.style.getPropertyValue(k);
-        if (v2) c.style.setProperty(k, v2);
-        else c.style.removeProperty(k);
+      const tab = x.tab, tr2 = x.tr;
+      put(c, "left", `${(tr2.left - hr.left).toFixed(3)}px`);
+      put(c, "top", `${(tr2.top - hr.top).toFixed(3)}px`);
+      const k = scaleOf(x.ow, tr2);
+      put(c, "width", `${(tr2.width / k).toFixed(3)}px`);
+      put(c, "height", `${(tr2.height / k).toFixed(3)}px`);
+      put(c, "transform", k !== 1 ? `scale(${k.toFixed(4)})` : "");
+      for (const k2 of ["--lg-mx", "--lg-my"]) {
+        const v2 = tab.style.getPropertyValue(k2);
+        if (v2) put(c, k2, v2);
+        else if (c.style.getPropertyValue(k2)) c.style.removeProperty(k2);
       }
     });
     const s = this.textEl.style;
     this.textEl.classList.toggle("lg-seg-text-off", false);
     const dpr = this.header.win.devicePixelRatio || 1;
     const px0 = Math.round(x0 * dpr) / dpr, py0 = Math.round(y0 * dpr) / dpr;
-    s.left = `${n(px0)}px`;
-    s.top = `${n(py0)}px`;
-    s.width = `${n(vw)}px`;
-    s.height = `${n(vh)}px`;
-    s.borderRadius = `${n(vh * this.rx)}px / ${n(r)}px`;
-    this.textInner.style.left = `${(-px0).toFixed(3)}px`;
-    this.textInner.style.top = `${(-py0).toFixed(3)}px`;
+    put(this.textEl, "left", `${n(px0)}px`);
+    put(this.textEl, "top", `${n(py0)}px`);
+    put(this.textEl, "width", `${n(vw)}px`);
+    put(this.textEl, "height", `${n(vh)}px`);
+    put(this.textEl, "border-radius", `${n(vh * this.rx)}px / ${n(r)}px`);
+    put(this.textInner, "left", `${(-px0).toFixed(3)}px`);
+    put(this.textInner, "top", `${(-py0).toFixed(3)}px`);
     const id = this.filterAt(vw, vh, LENS_TAB_TEXT);
     const f = this.header.ownerDocument.getElementById(id);
     const dm = f && f.querySelector("feDisplacementMap");
     if (dm) {
       if (!dm.getAttribute("data-base")) dm.setAttribute("data-base", dm.getAttribute("scale") || "0");
-      dm.setAttribute("scale", (parseFloat(dm.getAttribute("data-base")) * g).toFixed(2));
+      const sc = (parseFloat(dm.getAttribute("data-base")) * g).toFixed(2);
+      if (dm.getAttribute("scale") !== sc) dm.setAttribute("scale", sc);
     }
     const v = `url(#${id})`;
     if (s.filter !== v) s.filter = v;
@@ -2725,7 +2769,7 @@ var SegmentLens = class {
     const w1 = r.width + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? r.height : Hc;
     const h2 = this.keepH ? r.height * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
-    const w2 = r.width + h2 * TAB_REF_RATIO - R + TAB_GROW_FWD;
+    const w2 = r.width + h2 * TAB_REF_RATIO - R + (this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD);
     const legs = [[r.width, r.height, w1, h1], [w1, h1, w2, h2], [w2, h2, r.width, r.height]];
     const sizes = [];
     for (const [w0, h0, wa, ha] of legs) for (let k = 0; k <= 1.0001; k += 0.05) sizes.push([w0 + (wa - w0) * k, h0 + (ha - h0) * k]);
@@ -2748,6 +2792,10 @@ var SegmentLens = class {
       if (sizes.length || texts.length) next();
     });
     next();
+  }
+  // 묶음의 탭을 모두 미리 굽는다 (같은 크기는 한 번). 탭이 늘거나 폭이 바뀌면 다시 불러도 된다
+  prebakeAll() {
+    for (const tab of Array.from(this.inner.querySelectorAll(":scope > .workspace-tab-header"))) this.prebake(tab);
   }
   // 멈추면 원래 선택 표시로 돌린다
   stop() {
@@ -2774,21 +2822,24 @@ var SegmentLens = class {
     if (!this.el || !this.el.isConnected || !this.from || !this.to) return this.stop();
     const t = now - this.t0;
     const D = this.dur;
-    const live = this.toTab && this.toTab.isConnected ? this.rectOf(this.toTab) : this.to;
+    const m = this.measure();
+    const tm = this.toTab ? m.tabs.find((x) => x.tab === this.toTab) : void 0;
+    const live = tm ? { cx: tm.tr.left - m.hr.left + tm.tr.width / 2, cy: tm.tr.top - m.hr.top + tm.tr.height / 2, w: tm.tr.width, h: tm.tr.height } : this.to;
     const a = Object.assign({}, this.from, { cx: this.from.cx + live.cx - this.to.cx, cy: this.from.cy + live.cy - this.to.cy });
     const b = live;
     const dir = Math.sign(b.cx - a.cx) || 1;
     const lerp = (p, q, k) => p + (q - p) * k;
     const smooth = (x) => x * x * (3 - 2 * x);
     const clamp01 = (x) => Math.min(1, Math.max(0, x));
-    const Hc = this.inner.getBoundingClientRect().height || b.h;
+    const Hc = m.innerH || b.h;
     const R = b.h * TAB_REF_RATIO;
     const w1 = b.w + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? b.h : Hc;
     const h2 = this.keepH ? b.h * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
     const SQ = this.keepH ? MOBILE_TAB_SQUASH : TAB_SQUASH;
-    const w2 = b.w + h2 * TAB_REF_RATIO - R + TAB_GROW_FWD;
-    const lead = b.cx + dir * b.w / 2 + dir * TAB_GROW_FWD * (1 - smooth(clamp01((t - D) / TAB_SHRINK_MS)));
+    const FWD = this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD;
+    const w2 = b.w + h2 * TAB_REF_RATIO - R + FWD;
+    const lead = b.cx + dir * b.w / 2 + dir * FWD * (1 - smooth(clamp01((t - D) / TAB_SHRINK_MS)));
     let bw;
     let bh;
     let sx = 1;
@@ -2859,12 +2910,12 @@ var SegmentLens = class {
     el.style.transform = `translate(${(cx - b.cx).toFixed(2)}px, ${(cy - b.cy).toFixed(2)}px) scale(${sx.toFixed(4)}, ${sy.toFixed(4)})`;
     el.classList.toggle("lg-seg-off", false);
     el.classList.toggle("lg-seg-on", true);
-    el.style.setProperty("--lg-g", g.toFixed(3));
+    if (el.style.getPropertyValue("--lg-g") !== g.toFixed(3)) el.style.setProperty("--lg-g", g.toFixed(3));
     if (this.refract && g > 0) {
       const v = `url(#${this.filterAt(bw, bh)})`;
       if (this.lensEl.style.getPropertyValue("--lg-refract") !== v) this.lensEl.style.setProperty("--lg-refract", v);
     }
-    this.textLens(cx - bw * sx / 2, cy - bh * sy / 2, bw * sx, bh * sy, g);
+    this.textLens(cx - bw * sx / 2, cy - bh * sy / 2, bw * sx, bh * sy, g, m);
     this.raf = window.requestAnimationFrame((tt) => this.step(tt));
   }
 };
@@ -4443,24 +4494,16 @@ var foldersMethods = {
     if (!rgb) return b.style.removeProperty("--lg-folder-icon");
     b.style.setProperty("--lg-folder-icon", folderIconUrl(rgb));
   },
-  // ---------- 폴더 색 (폴더 컬러 매니저 플러그인 기능을 옮겨 옴) ----------
+  // ---------- 폴더 색 ----------
   // 색은 폴더 이름 기준: 공유 설정(data.json)의 folderColorsByName { 폴더 이름: "#hex" }. 이름이 같은 폴더는 어디에 있든
   // (최상위 포함) 같은 색이고, 같은 이름으로 새로 만든 폴더도 바로 그 색이 된다 (사용자 요청. PARA 범주마다 같은 분야 폴더가 생긴다).
-  // 예전 경로 기준(folderColors)이나 폴더 컬러 매니저의 data.json 에서 한 번 옮겨 온다.
+  // 예전 경로 기준(folderColors)은 한 번 이름 기준으로 옮긴다.
   // 파일 탐색기의 색 지정 폴더(.nav-folder)에 lg-fc 클래스와 변수(--lg-fc 색, --lg-folder-icon 그 색 기호)를 붙이면
   // 하위 폴더는 변수를 물려받아 같은 색이 된다 (하위에 따로 지정한 색이 있으면 그 색). 글자·화살표·세로줄은 CSS(styles.css)가 칠한다.
   // :has() 로 경로를 찾지 않으려고 플러그인이 요소에 직접 붙인다 (넓은 범위 :has 는 끌기 렉)
   async setupFolderColors(raw) {
     if (!raw.folderColorsByName || typeof raw.folderColorsByName !== "object") {
-      let byPath = raw.folderColors && typeof raw.folderColors === "object" ? raw.folderColors : null;
-      if (!byPath) {
-        try {
-          const p = `${this.app.vault.configDir}/plugins/folder-color-manager/data.json`;
-          if (await this.app.vault.adapter.exists(p)) byPath = (JSON.parse(await this.app.vault.adapter.read(p)) || {}).folderColors;
-        } catch (e) {
-          console.error("[glass-shelf] folder colors import", e);
-        }
-      }
+      const byPath = raw.folderColors && typeof raw.folderColors === "object" ? raw.folderColors : null;
       const byName = {};
       for (const [path, hex] of Object.entries(byPath || {})) if (hexToRgb(hex)) byName[path.split("/").pop() || path] = hex;
       this.shared.folderColorsByName = byName;
@@ -4619,7 +4662,7 @@ var foldersMethods = {
   // 폭은 목록 안쪽 폭에서 맨 위 단계 줄의 좌우 여백을 뺀 값 (스크롤바가 생겨도 무늬 폭이 줄 폭을 따라 들쭉날쭉하지 않게).
   // 설정에서 끄면(fileStripes) 층을 비운다
   applyStripes(list) {
-    this.rowExtent(list);
+    const m = this.rowExtent(list);
     let layer = list.querySelector(":scope > .lg-stripes");
     if (!this.settings.fileStripes || import_obsidian9.Platform.isMobile) {
       if (layer) layer.remove();
@@ -4632,9 +4675,7 @@ var foldersMethods = {
     }
     list.classList.add("lg-has-stripes");
     if (!this.stripeBars) this.stripeBars = /* @__PURE__ */ new WeakMap();
-    const rows = els(list.querySelectorAll(".tree-item-self")).filter((r) => r.getClientRects().length);
-    const lr = list.getBoundingClientRect();
-    const rects = rows.map((r) => r.getBoundingClientRect());
+    const rows = m.rows, rects = m.rects, lr = m.lr;
     const top = (rc) => rc.top - lr.top + list.scrollTop;
     let step = list.lgStripeStep || 0;
     if (!step) {
@@ -4648,7 +4689,7 @@ var foldersMethods = {
     }
     const pad = parseFloat(getComputedStyle(list).paddingTop) || 0;
     const k0 = rows.length ? Math.round((top(rects[0]) - pad) / step) : 0;
-    const bl = this.rowGapLeft(list);
+    const bl = m.gl;
     const keep = /* @__PURE__ */ new Set();
     rows.forEach((r, i) => {
       if ((k0 + i) % 2 !== 1) return;
@@ -4686,21 +4727,30 @@ var foldersMethods = {
   },
   // 줄 하이라이트(CSS: 파일 탐색기 .tree-item-self::before)를 줄무늬와 같은 폭으로: 왼쪽은 목록 왼쪽 끝에서 알약 간격(--lg-gap),
   // 오른쪽은 목록 안쪽 끝(스크롤바 칸 왼쪽 끝)까지. 맨 위 단계 줄(가장 넓은 줄)로 잰다 (사용자 요청)
+  // 보이는 줄과 그 자리를 돌려준다 (applyStripes 가 같은 측정을 쓴다)
   rowExtent(list) {
     const lr = list.getBoundingClientRect();
     const gl = this.rowGapLeft(list);
     let wide = null;
+    const rows = [];
+    const rects = [];
     for (const r of list.querySelectorAll(".tree-item-self")) {
       const rc = r.getBoundingClientRect();
       if (!rc.width) continue;
+      rows.push(r);
+      rects.push(rc);
       if (!wide || rc.width > wide.width) wide = rc;
-      const l = `${Math.round((rc.left - lr.left - gl) * 10) / 10}px`;
-      if (r.style.getPropertyValue("--lg-row-ext-l") !== l) r.style.setProperty("--lg-row-ext-l", l);
     }
-    if (!wide) return;
+    rows.forEach((r, i) => {
+      const l = `${Math.round((rects[i].left - lr.left - gl) * 10) / 10}px`;
+      if (r.style.getPropertyValue("--lg-row-ext-l") !== l) r.style.setProperty("--lg-row-ext-l", l);
+    });
+    const out = { rows, rects, lr, gl };
+    if (!wide) return out;
     const right = Math.max(0, lr.left + list.clientLeft + list.clientWidth - wide.right - (import_obsidian9.Platform.isMobile ? gl : 0));
     const rr = `${Math.round(right * 10) / 10}px`;
     if (list.style.getPropertyValue("--lg-row-ext-r") !== rr) list.style.setProperty("--lg-row-ext-r", rr);
+    return out;
   },
   // 줄무늬·줄 하이라이트의 왼쪽 끝: 목록 왼쪽 끝에서 알약 간격(--lg-gap) (사용자 요청)
   rowGapLeft(list) {
@@ -5840,7 +5890,7 @@ var sidebarMethods = {
     if (!inner) return;
     this.segWatched.add(tabsEl);
     const lens = new SegmentLens(header, inner, this);
-    lens.prebake(inner.querySelector(":scope > .workspace-tab-header.is-active"));
+    lens.prebakeAll();
     this.registerDomEvent(inner, "scroll", () => inner.style.setProperty("--lg-sx", `${inner.scrollLeft}px`), { passive: true });
     const win = header.ownerDocument.defaultView || window;
     let rb = 0;
@@ -5859,7 +5909,10 @@ var sidebarMethods = {
       const cur = current();
       if (cur && last && cur !== last && last.isConnected && inner.children.length > 1) lens.moveTo(last, cur);
       if (cur !== last) this.updateNavMore(tabsEl);
-      else this.renderNavRow(tabsEl);
+      else {
+        this.renderNavRow(tabsEl);
+        lens.prebakeAll();
+      }
       last = cur;
     });
     obs.observe(inner, { subtree: true, childList: true, attributes: true, attributeFilter: ["class"] });
@@ -6139,14 +6192,21 @@ var tabsMethods = {
         delete header.lgBalanceObs;
       });
     }
+    const now = (header.ownerDocument.defaultView || window).performance.now();
+    if (header.lgBalanceAt != null && now - header.lgBalanceAt < 4) return;
+    header.lgBalanceAt = now;
     const hr = header.getBoundingClientRect();
     const cs = getComputedStyle(header);
     const path = header.querySelector(":scope > .lg-path");
     const stacked = tabsEl.classList.contains("mod-stacked");
     const anchor = !import_obsidian11.Platform.isPhone && path && (stacked || this.settings.showPath) ? path : inner;
-    const kids = els(header.children).filter(
-      (c) => c !== sp && (anchor === inner || c !== inner) && !c.classList.contains("lg-slab") && !c.classList.contains("lg-seg-indicator") && c.getClientRects().length && getComputedStyle(c).position !== "absolute"
-    ).map((c, k) => ({ c, k, o: parseFloat(getComputedStyle(c).order) || 0 })).sort((a, b) => a.o - b.o || a.k - b.k).map((x) => x.c);
+    const styles = /* @__PURE__ */ new Map();
+    const styleOf = (c) => {
+      let v = styles.get(c);
+      if (!v) styles.set(c, v = getComputedStyle(c));
+      return v;
+    };
+    const kids = els(header.children).filter((c) => c !== sp && (anchor === inner || c !== inner) && !c.classList.contains("lg-slab") && !c.classList.contains("lg-seg-indicator") && c.getClientRects().length && styleOf(c).position !== "absolute").map((c, k) => ({ c, k, o: parseFloat(styleOf(c).order) || 0 })).sort((a, b) => a.o - b.o || a.k - b.k).map((x) => x.c);
     const i = kids.indexOf(anchor);
     const box = (c) => {
       if (c.offsetParent === header) return { left: c.offsetLeft, right: c.offsetLeft + c.offsetWidth, width: c.offsetWidth };
@@ -6155,7 +6215,7 @@ var tabsMethods = {
     };
     const lefts = kids.slice(0, i).filter((c) => box(c).width > 0.5);
     const rights = kids.slice(i + 1).filter((c) => box(c).width > 0.5);
-    const L = lefts.length ? Math.max(...lefts.map((c) => box(c).right + (parseFloat(getComputedStyle(c).marginRight) || 0))) : parseFloat(cs.paddingLeft);
+    const L = lefts.length ? Math.max(...lefts.map((c) => box(c).right + (parseFloat(styleOf(c).marginRight) || 0))) : parseFloat(cs.paddingLeft);
     const R = hr.width - (rights.length ? Math.min(...rights.map((c) => box(c).left)) : hr.width - parseFloat(cs.paddingRight));
     const diff = R - L;
     const w = Math.abs(diff);

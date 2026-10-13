@@ -39,6 +39,7 @@ export interface PressInfo {
 export interface LgState {
   // 탭 줄
   lgBalanceObs?: ResizeObserver | null;
+  lgBalanceAt?: number;
   lgBandObs?: MutationObserver;
   lgMiniHold?: number;
   lgMiniLeaf?: WorkspaceLeaf;
@@ -130,8 +131,6 @@ declare global {
 
 declare module "obsidian" {
   interface App {
-    internalPlugins: { getPluginById(id: string): { enabled: boolean; instance: unknown } | null };
-    plugins: { enabledPlugins: Set<string>; plugins: Record<string, unknown> };
     setting: { open(): void; close(): void; openTabById(id: string): void; containerEl?: HTMLElement; popout?: { win?: Window } | null };
     customCss: { theme: string; enabledSnippets: Set<string> };
     isMobile: boolean;

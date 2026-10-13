@@ -115,6 +115,7 @@ export class Refractor {
   declare maps: Map<string, { url: string; scale?: number }>;
   declare resizeObs: ResizeObserver;
   declare stores: Map<Document, FilterStore>;
+  declare rxr: number | undefined;
   declare tracked: Set<HTMLElement>;
 
   constructor() {
@@ -416,7 +417,9 @@ export class Refractor {
     const E = lens.edge;
     const R = lens.reach;
     const S = lens.shape || 2;
-    const RXR = parseFloat(getComputedStyle(document.body).getPropertyValue("--lg-pill-rx")) || 0.5;
+    // 알약 곡률 비율은 한 번만 읽는다 (지도마다 계산된 스타일을 읽으면 그때마다 스타일 재계산을 강제했다)
+    if (this.rxr == null) this.rxr = parseFloat(getComputedStyle(document.body).getPropertyValue("--lg-pill-rx")) || 0.5;
+    const RXR = this.rxr;
     const L = 1 - T;
     // f(t) = 읽는 자리 - t. 가운데(t <= T)는 기울기 M-1, 바깥 띠는 (T, (M-1)T, 기울기 M-1) 에서
     // (1, R-1, 기울기 E-1) 로 이어지는 3차 곡선. 가운데 배율이 1이어도 테두리 값만으로 띠가 휜다

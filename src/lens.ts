@@ -34,11 +34,34 @@ export const LENS_TG_TALL = 3; // 토글 렌즈가 되었을 때 실제 높이�
 // 3) 작아짐: 도착 쪽 끝은 그대로, 반대쪽 끝이 관성처럼 밀려와 찌그러지고(TAB_SQUASH), 이어 폭이 늘어나게 찌그러지며
 //    높이는 조금 낮아진다(TAB_STRETCH·TAB_STRETCH_H). 그동안 렌즈가 선택 알약 크기로 작아지며 유리가 빠지고, 가장 길 때 끝난다
 // 4) 원상복구: 길고 조금 낮은 찌그러짐이 선택 알약 비율로 돌아온다
+// 요소의 화면 배율 (화면 폭 ÷ 레이아웃 폭 offsetWidth). 1px 안쪽 차이는 정수로 잘린 offsetWidth 탓이라 1로 본다
+const scaleOf = (ow: number, r: DOMRect): number => (ow && Math.abs(r.width - ow) >= 1 ? r.width / ow : 1);
+
+// 한 프레임의 탭 줄 측정값. 읽기(getBoundingClientRect·offsetWidth)를 프레임 앞에 한 번에 모아, 스타일을 쓴 뒤 다시 읽어
+// 매 프레임 강제 스타일 계산이 두세 번 생기던 것을 없앤다 (폰 측정: 전환 1초에 스타일 계산 145번 166ms)
+interface TabMeasure {
+  tab: HTMLElement;
+  ti: HTMLElement | null;
+  tr: DOMRect;
+  tir: DOMRect | null;
+  ow: number;
+  tiow: number;
+}
+interface LensMeasure {
+  hr: DOMRect;
+  innerH: number;
+  tabs: TabMeasure[];
+}
+
+// 글자 렌즈 복사본에 옮기는 계산된 배치 값 (탭 목록 자식 선택자 규칙을 대신한다)
+const CLONE_BOX = ["display", "flex-direction", "flex-wrap", "align-items", "justify-content", "gap", "padding", "font-size", "font-weight", "line-height", "letter-spacing", "text-align", "white-space"];
+const CLONE_SIZE = ["width", "height", "min-width", "margin", "flex-grow", "flex-shrink", "flex-basis", "align-self", "order"];
 export const TAB_LENS_MS = 80; // 선택 알약 → 렌즈
 export const TAB_PRESS_K = 0.5; // 패널 탭을 누를 때 탭 줄 알약이 커지는 정도 (다른 알약 대비)
 export const TAB_LENS_W = 1.2; // 이동 중 렌즈 폭 (기본 탭 폭 대비, 더하는 양은 절대값)
 export const TAB_GROW_MS = 90; // 도착 전 커지는 시간
 export const TAB_GROW_FWD = 9; // 도착 전 커질 때 폭에 더하는 px. 도착 쪽(앞)으로 늘었다가 작아지는 동안 선택 알약 끝으로 돌아온다 (조율기 값)
+export const MOBILE_TAB_GROW_FWD = 0; // 모바일 서랍은 도착 쪽으로 튀어나가지 않는다 (사용자 요청)
 export const TAB_LENS_H2 = 1.2; // 커졌을 때 높이 (컨테이너 알약 높이 대비)
 export const TAB_SHRINK_MS = 280; // 작아짐 (렌즈 → 선택 알약)
 export const TAB_SQUASH = 0.5; // 기본 탭(33.8px) 기준 약 17px (0.414 에서 사용자 요청으로 조금 더).  반대쪽 끝이 밀려와 폭이 눌리는 정도
@@ -93,6 +116,7 @@ export class SegmentLens {
   declare textEl: HTMLElement | null;
   declare textInner: HTMLElement;
   declare textSig: string;
+  declare textAct: string;
 
   constructor(header: HTMLElement, inner: HTMLElement, plugin: GlassShelfPlugin) {
     this.header = header;
@@ -118,6 +142,19 @@ export class SegmentLens {
     const hr = this.header.getBoundingClientRect();
     const r = tab.getBoundingClientRect();
     return { cx: r.left - hr.left + r.width / 2, cy: r.top - hr.top + r.height / 2, w: r.width, h: r.height };
+  }
+
+  measure(): LensMeasure {
+    const hr = this.header.getBoundingClientRect();
+    const innerH = this.inner.getBoundingClientRect().height;
+    const tabs: TabMeasure[] = [];
+    for (const tab of Array.from(this.inner.querySelectorAll<HTMLElement>(":scope > .workspace-tab-header"))) {
+      const tr = tab.getBoundingClientRect();
+      if (!tr.width) continue;
+      const ti = tab.querySelector<HTMLElement>(":scope > .workspace-tab-header-inner");
+      tabs.push({ tab, ti, tr, tir: ti ? ti.getBoundingClientRect() : null, ow: tab.offsetWidth, tiow: ti ? ti.offsetWidth : 0 });
+    }
+    return { hr, innerH, tabs };
   }
 
   moveTo(fromTab: HTMLElement, toTab: HTMLElement) {
@@ -161,68 +198,101 @@ export class SegmentLens {
   // 렌즈 안 글자는 탭 줄과 따로 굴절한다 (사용자 요청: 한 굴절로 같이 휘면 가운데 선 방식에서 글자가 옆으로 늘어진다).
   // 원래 탭 글자(.workspace-tab-header-inner)는 렌즈 모양만큼 잘라 숨겨 렌즈 유리가 탭 줄만 떠 오게 하고,
   // 렌즈 자리에 탭 복사본을 렌즈 모양으로 잘라 올려 글자 전용 굴절(LENS_TAB_TEXT)을 건다. 굴절 세기는 렌즈 정도 g 를 따른다
-  textLens(x0: number, y0: number, vw: number, vh: number, g: number) {
-    const tabs = Array.from(this.inner.querySelectorAll<HTMLElement>(":scope > .workspace-tab-header")).filter((t) => t.offsetWidth > 0);
+  textLens(x0: number, y0: number, vw: number, vh: number, g: number, m: LensMeasure) {
+    const tabs = m.tabs.map((x) => x.tab);
     if (!this.refract || g <= 0 || !tabs.length) return this.textOff();
-    const hr = this.header.getBoundingClientRect();
+    const hr = m.hr;
     const r = vh / 2;
     const n = (v: number) => v.toFixed(2);
-    // 누름 효과로 탭 줄 알약(this.inner)이 커져 있는 동안의 배율. 화면 좌표를 탭 안쪽 좌표로 바꿀 때 나눈다
-    const sc = this.inner.offsetWidth ? this.inner.getBoundingClientRect().width / this.inner.offsetWidth : 1;
-    for (const tab of tabs) {
-      const ti = tab.querySelector<HTMLElement>(":scope > .workspace-tab-header-inner");
-      if (!ti) continue;
-      const tr = ti.getBoundingClientRect();
-      const ax = (x0 - (tr.left - hr.left)) / sc;
-      const ay = (y0 - (tr.top - hr.top)) / sc;
-      const w = vw / sc, h = vh / sc, rr = r / sc;
+    // 같은 값은 다시 쓰지 않는다 (쓰면 그 요소의 스타일이 더러워져 다음 읽기에서 다시 계산한다)
+    const put = (el: HTMLElement, k: string, v: string) => {
+      if (el.style.getPropertyValue(k) !== v) el.style.setProperty(k, v);
+    };
+    for (const x of m.tabs) {
+      const ti = x.ti, tr = x.tir;
+      if (!ti || !tr) continue;
+      // 렌즈와 겹치지 않는 탭은 구멍이 필요 없다
+      const L = tr.left - hr.left, T = tr.top - hr.top;
+      if (L > x0 + vw || L + tr.width < x0 || T > y0 + vh || T + tr.height < y0) {
+        if (ti.style.getPropertyValue("clip-path")) ti.style.removeProperty("clip-path");
+        continue;
+      }
+      const ks = scaleOf(x.tiow, tr);
+      const ax = (x0 - L) / ks;
+      const ay = (y0 - T) / ks;
+      const w = vw / ks, h = vh / ks, rr = r / ks;
       // 바깥은 남기고 렌즈 모양(알약)만 비운다 (evenodd)
-      ti.style.clipPath = `path(evenodd, "M-9999 -9999H9999V9999H-9999Z M${n(ax + rr)} ${n(ay)}H${n(ax + w - rr)}A${n(rr)} ${n(rr)} 0 0 1 ${n(ax + w - rr)} ${n(ay + h)}H${n(ax + rr)}A${n(rr)} ${n(rr)} 0 0 1 ${n(ax + rr)} ${n(ay)}Z")`;
+      put(ti, "clip-path", `path(evenodd, "M-9999 -9999H9999V9999H-9999Z M${n(ax + rr)} ${n(ay)}H${n(ax + w - rr)}A${n(rr)} ${n(rr)} 0 0 1 ${n(ax + w - rr)} ${n(ay + h)}H${n(ax + rr)}A${n(rr)} ${n(rr)} 0 0 1 ${n(ax + rr)} ${n(ay)}Z")`);
     }
     if (!this.textEl || !this.textEl.isConnected) {
       this.textEl = this.header.createDiv({ cls: ["lg-seg-text", INJECTED] });
       this.textInner = this.textEl.createDiv();
       this.textSig = "";
     }
-    // 선택 탭·탭 수가 바뀌면 다시 복사한다. 복사본은 탭 줄 밖이라 글자색은 원래 것을 그대로 옮긴다
-    const sig = tabs.map((t) => (t.hasClass("is-active") ? "1" : "0")).join("");
+    // 탭 수·이름이 바뀌면 다시 복사하고(배치 값까지), 선택 탭만 바뀌면 복사본의 글자색만 다시 옮긴다.
+    // 전환마다 통째로 다시 복사하면 요소 300개의 계산된 스타일을 읽느라 첫 프레임이 45ms 끊겼다 (폰 측정).
+    // 복사본은 탭 줄 밖이라 글자색은 원래 것을 그대로 옮긴다
+    const sig = tabs.map((t) => t.getAttribute("aria-label") || t.textContent || "").join("\u0001");
+    const actSig = tabs.map((t) => (t.hasClass("is-active") ? "1" : "0")).join("");
+    const pairs = (tab: HTMLElement, c: HTMLElement) => {
+      const src = [tab, ...Array.from(tab.querySelectorAll<HTMLElement>("*"))];
+      const dst = [c, ...Array.from(c.querySelectorAll<HTMLElement>("*"))];
+      return src.map((s, i) => [s, dst[i]] as const).filter(([, d]) => !!d);
+    };
+    const copyInk = (tab: HTMLElement, c: HTMLElement) => {
+      c.classList.toggle("is-active", tab.hasClass("is-active"));
+      for (const [s, d] of pairs(tab, c)) {
+        if (s.closest("svg") && s.tagName.toLowerCase() !== "svg") continue;
+        const cs = getComputedStyle(s);
+        d.style.color = cs.color;
+        d.style.opacity = cs.opacity;
+      }
+    };
     if (sig !== this.textSig) {
       this.textSig = sig;
+      this.textAct = actSig;
       this.textInner.empty();
       for (const tab of tabs) {
         const c = tab.cloneNode(true) as HTMLElement;
-        const src = [tab, ...Array.from(tab.querySelectorAll<HTMLElement>("*"))];
-        const dst = [c, ...Array.from(c.querySelectorAll<HTMLElement>("*"))];
-        src.forEach((s, i) => {
-          const d = dst[i];
-          if (!d) return;
+        pairs(tab, c).forEach(([s, d], i) => {
+          d.style.removeProperty("clip-path");
+          // 배치도 계산된 값으로 옮긴다: 복사본은 탭 목록 밖(.lg-seg-text)이라 탭 목록 자식 선택자로 거는 규칙(모바일 서랍의 기호 밑 작은 이름 등)을
+          // 받지 못해, 렌즈가 지나는 동안 이름이 기호만큼 커져 기호 오른쪽에 그려졌다 (사용자 지적). 탭 자체의 크기·자리는 매 프레임 따로 맞춘다
+          if (s.closest("svg") && s.tagName.toLowerCase() !== "svg") return;
           const cs = getComputedStyle(s);
           d.style.color = cs.color;
           d.style.opacity = cs.opacity;
-          d.style.removeProperty("clip-path");
+          for (const k of i === 0 ? CLONE_BOX : [...CLONE_BOX, ...CLONE_SIZE]) d.style.setProperty(k, cs.getPropertyValue(k));
         });
         this.textInner.appendChild(c);
       }
+    } else if (actSig !== this.textAct) {
+      this.textAct = actSig;
+      const cl = Array.from(this.textInner.children) as HTMLElement[];
+      tabs.forEach((tab, i) => cl[i] && copyInk(tab, cl[i]));
     }
     // 복사본 자리는 매 프레임 원래 탭을 따른다. 누름 효과로 탭 줄이 커졌다 돌아오는 동안 처음 복사한 자리에 머물면
     // 끝나고 원래 글자로 바뀔 때 글자가 툭 움직였다
     const clones = Array.from(this.textInner.children) as HTMLElement[];
-    tabs.forEach((tab, i) => {
+    m.tabs.forEach((x, i) => {
       const c = clones[i];
       if (!c) return;
-      const tr = tab.getBoundingClientRect();
-      c.style.left = `${(tr.left - hr.left).toFixed(3)}px`;
-      c.style.top = `${(tr.top - hr.top).toFixed(3)}px`;
+      const tab = x.tab, tr = x.tr;
+      put(c, "left", `${(tr.left - hr.left).toFixed(3)}px`);
+      put(c, "top", `${(tr.top - hr.top).toFixed(3)}px`);
       // offsetWidth 는 정수로 잘려 좁은 패널에서 이름이 말줄임(…)으로 잘렸다. 소수 폭을 그대로 쓴다
-      c.style.width = `${(tr.width / sc).toFixed(3)}px`;
-      c.style.height = `${(tr.height / sc).toFixed(3)}px`;
-      c.style.transform = sc !== 1 ? `scale(${sc.toFixed(4)})` : "";
+      // 배율은 탭마다 잰다(화면 폭 ÷ 레이아웃 폭): 탭 줄 알약의 누름 배율에 더해, 모바일은 누른 탭 자체가 커진다.
+      // 탭 줄 배율만 쓰면 커진 탭의 복사본이 큰 상자에 위로 붙어 그려져, 선택 탭 기호·이름이 위로 올라갔다 내려왔다 (사용자 지적)
+      const k = scaleOf(x.ow, tr);
+      put(c, "width", `${(tr.width / k).toFixed(3)}px`);
+      put(c, "height", `${(tr.height / k).toFixed(3)}px`);
+      put(c, "transform", k !== 1 ? `scale(${k.toFixed(4)})` : "");
       // 호버 끌림(--lg-mx/--lg-my)도 매 프레임 원래 탭 값을 따른다. 복사할 때 값이 그대로 박혀, 커서가 떠난 뒤에도 복사본 글자가
       // 끌린 자리에 머물다가 끝날 때 원래 글자로 바뀌며 순간이동했다 (사용자 지적)
       for (const k of ["--lg-mx", "--lg-my"]) {
         const v = tab.style.getPropertyValue(k);
-        if (v) c.style.setProperty(k, v);
-        else c.style.removeProperty(k);
+        if (v) put(c, k, v);
+        else if (c.style.getPropertyValue(k)) c.style.removeProperty(k);
       }
     });
     const s = this.textEl.style;
@@ -231,20 +301,21 @@ export class SegmentLens {
     // 끝나고 원래 글자로 바뀔 때 위아래로 툭 움직였다. 층의 시작점만 화면 픽셀에 맞추고 글자 자리는 그만큼 되돌린다
     const dpr = this.header.win.devicePixelRatio || 1;
     const px0 = Math.round(x0 * dpr) / dpr, py0 = Math.round(y0 * dpr) / dpr;
-    s.left = `${n(px0)}px`;
-    s.top = `${n(py0)}px`;
-    s.width = `${n(vw)}px`;
-    s.height = `${n(vh)}px`;
-    s.borderRadius = `${n(vh * this.rx)}px / ${n(r)}px`;
-    this.textInner.style.left = `${(-px0).toFixed(3)}px`;
-    this.textInner.style.top = `${(-py0).toFixed(3)}px`;
+    put(this.textEl, "left", `${n(px0)}px`);
+    put(this.textEl, "top", `${n(py0)}px`);
+    put(this.textEl, "width", `${n(vw)}px`);
+    put(this.textEl, "height", `${n(vh)}px`);
+    put(this.textEl, "border-radius", `${n(vh * this.rx)}px / ${n(r)}px`);
+    put(this.textInner, "left", `${(-px0).toFixed(3)}px`);
+    put(this.textInner, "top", `${(-py0).toFixed(3)}px`);
     const id = this.filterAt(vw, vh, LENS_TAB_TEXT);
     const f = this.header.ownerDocument.getElementById(id);
     const dm = f && f.querySelector("feDisplacementMap");
     if (dm) {
       // 지도마다 처음 세기를 적어 두고 렌즈 정도만큼 줄여 건다
       if (!dm.getAttribute("data-base")) dm.setAttribute("data-base", dm.getAttribute("scale") || "0");
-      dm.setAttribute("scale", (parseFloat(dm.getAttribute("data-base")) * g).toFixed(2));
+      const sc = (parseFloat(dm.getAttribute("data-base")) * g).toFixed(2);
+      if (dm.getAttribute("scale") !== sc) dm.setAttribute("scale", sc);
     }
     const v = `url(#${id})`;
     if (s.filter !== v) s.filter = v;
@@ -269,7 +340,7 @@ export class SegmentLens {
     const w1 = r.width + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? r.height : Hc;
     const h2 = this.keepH ? r.height * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
-    const w2 = r.width + h2 * TAB_REF_RATIO - R + TAB_GROW_FWD;
+    const w2 = r.width + h2 * TAB_REF_RATIO - R + (this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD);
     // 출발 알약 → 렌즈 → 커진 렌즈 → 선택 알약
     const legs = [[r.width, r.height, w1, h1], [w1, h1, w2, h2], [w2, h2, r.width, r.height]];
     const sizes: [number, number][] = [];
@@ -296,6 +367,11 @@ export class SegmentLens {
         if (sizes.length || texts.length) next();
       });
     next();
+  }
+
+  // 묶음의 탭을 모두 미리 굽는다 (같은 크기는 한 번). 탭이 늘거나 폭이 바뀌면 다시 불러도 된다
+  prebakeAll() {
+    for (const tab of Array.from(this.inner.querySelectorAll<HTMLElement>(":scope > .workspace-tab-header"))) this.prebake(tab);
   }
 
   // 멈추면 원래 선택 표시로 돌린다
@@ -330,7 +406,10 @@ export class SegmentLens {
 
     // 도착할 탭의 지금 자리 (··· 이 접히거나 펼쳐져 탭 줄이 밀리면 따라간다).
     // 출발점도 같은 만큼 옮긴다 (탭 줄 전체가 함께 밀리므로)
-    const live = this.toTab && this.toTab.isConnected ? this.rectOf(this.toTab) : this.to;
+    // 읽기는 여기서 한 번에 (아래 쓰기 뒤에 다시 읽지 않는다)
+    const m = this.measure();
+    const tm = this.toTab ? m.tabs.find((x) => x.tab === this.toTab) : undefined;
+    const live: LensRect = tm ? { cx: tm.tr.left - m.hr.left + tm.tr.width / 2, cy: tm.tr.top - m.hr.top + tm.tr.height / 2, w: tm.tr.width, h: tm.tr.height } : this.to;
     const a = Object.assign({}, this.from, { cx: this.from.cx + live.cx - this.to.cx, cy: this.from.cy + live.cy - this.to.cy });
     const b = live;
     const dir = Math.sign(b.cx - a.cx) || 1;
@@ -338,17 +417,18 @@ export class SegmentLens {
     const smooth = (x: number) => x * x * (3 - 2 * x);
     const clamp01 = (x: number) => Math.min(1, Math.max(0, x));
 
-    const Hc = this.inner.getBoundingClientRect().height || b.h;
+    const Hc = m.innerH || b.h;
     // 기본 탭 폭 R 기준의 절대값: 렌즈 폭은 R × 0.15 만큼 넓고, 커진 렌즈는 기본 탭이 커질 때와 같은 px 만큼 넓다
     const R = b.h * TAB_REF_RATIO;
     const w1 = b.w + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? b.h : Hc;
     const h2 = this.keepH ? b.h * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
     const SQ = this.keepH ? MOBILE_TAB_SQUASH : TAB_SQUASH;
-    const w2 = b.w + h2 * TAB_REF_RATIO - R + TAB_GROW_FWD;
+    const FWD = this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD;
+    const w2 = b.w + h2 * TAB_REF_RATIO - R + FWD;
     // 도착 쪽 끝: 선택 알약의 그쪽 끝. 도착하는 순간부터 끝까지 여기 선다
     // 앞으로 더한 폭(TAB_GROW_FWD)만큼 나갔다가 작아지는 동안 돌아온다
-    const lead = b.cx + (dir * b.w) / 2 + dir * TAB_GROW_FWD * (1 - smooth(clamp01((t - D) / TAB_SHRINK_MS)));
+    const lead = b.cx + (dir * b.w) / 2 + dir * FWD * (1 - smooth(clamp01((t - D) / TAB_SHRINK_MS)));
 
     // bw·bh: 실제 크기(곡률 유지), sx·sy: 찌그러짐, cx: 보이는 가운데, g: 렌즈 정도
     let bw: number;
@@ -427,12 +507,12 @@ export class SegmentLens {
     el.style.transform = `translate(${(cx - b.cx).toFixed(2)}px, ${(cy - b.cy).toFixed(2)}px) scale(${sx.toFixed(4)}, ${sy.toFixed(4)})`;
     el.classList.toggle("lg-seg-off", false);
     el.classList.toggle("lg-seg-on", true);
-    el.style.setProperty("--lg-g", g.toFixed(3));
+    if (el.style.getPropertyValue("--lg-g") !== g.toFixed(3)) el.style.setProperty("--lg-g", g.toFixed(3));
     if (this.refract && g > 0) {
       const v = `url(#${this.filterAt(bw, bh)})`;
       if (this.lensEl.style.getPropertyValue("--lg-refract") !== v) this.lensEl.style.setProperty("--lg-refract", v);
     }
-    this.textLens(cx - (bw * sx) / 2, cy - (bh * sy) / 2, bw * sx, bh * sy, g);
+    this.textLens(cx - (bw * sx) / 2, cy - (bh * sy) / 2, bw * sx, bh * sy, g, m);
     this.raf = window.requestAnimationFrame((tt) => this.step(tt));
   }
 }
