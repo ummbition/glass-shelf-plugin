@@ -2122,7 +2122,7 @@ var eventsMethods = {
       if (rip) this.pressRipple(rip, e);
       else if (this.tabPlain()) {
         const tab = e.target.closest(":is(.mod-left-split, .mod-right-split) .workspace-tab-header-container .workspace-tab-header");
-        if (tab) {
+        if (tab && !tab.closest(".lg-tab-list")) {
           const pill = tab.closest(PRESS_PILL);
           const d = (pill ? pill.offsetHeight : tab.offsetHeight) * TAB_RIPPLE_K;
           const from = Math.min(1, Math.max(tab.offsetWidth, tab.offsetHeight) / d);

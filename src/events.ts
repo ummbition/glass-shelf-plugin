@@ -360,7 +360,8 @@ export const eventsMethods = {
         // 패널 탭: 효과 없음 모드에서는 알약 안 버튼과 같은 흰 빛이 탭 가운데에서 퍼진다 (사용자 요청, 렌즈 모드는 렌즈가 대신한다)
         else if (this.tabPlain()) {
           const tab = (e.target as HTMLElement).closest<HTMLElement>(":is(.mod-left-split, .mod-right-split) .workspace-tab-header-container .workspace-tab-header");
-          if (tab) {
+          // 목록 방식 패널의 탭은 흰 빛이 없다: 알약이 목록 전체라 패널 투명(심플로 보임)에서 목록만 한 흰 알약이 퍼졌다 (사용자 지적)
+          if (tab && !tab.closest(".lg-tab-list")) {
             // 누르는 순간 이미 탭 버튼 크기만큼 퍼져 있다 (사용자 요청, 메뉴처럼). 다 퍼진 크기는 알약 높이 × TAB_RIPPLE_K
             const pill = tab.closest<HTMLElement>(PRESS_PILL);
             const d = (pill ? pill.offsetHeight : tab.offsetHeight) * TAB_RIPPLE_K;
