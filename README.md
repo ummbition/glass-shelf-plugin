@@ -23,7 +23,10 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
 - Lens or list layout for panel tabs, wide tab bar, tab names
 - Shrinks the Windows and Linux window controls into small dots
 
-![Panel tab lens switching](images/tab-switch.gif)
+<p align="center">
+  <img src="images/tabs-lens.gif" width="49%" alt="Panel tab lens switching">
+  <img src="images/tabs-list.gif" width="49%" alt="Panel tab list">
+</p>
 
 ### Glass
 - Glass opacity in 11 steps (0–10)
@@ -31,6 +34,11 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
 - Refraction that bends the background along glass edges
 - Popups that match menu translucency, or opaque popups
 - Morphing animation where a button grows into its menu, plus press effects
+- See-through side panels: your desktop and other windows show through the left and right panels, blurred. Works on Windows 11 22H2 or later with transparency effects turned on in Windows settings. When on, the tab switch effect is shown as Simple instead of Lens.
+
+<p align="center">
+  <img src="images/panel-acrylic.gif" alt="See-through side panels">
+</p>
 
 ### Details
 - Task checkbox style and color
@@ -86,7 +94,7 @@ Change them in **Settings → Community plugins → Glass Shelf Companion**.
 
 | Setting | What it does |
 |---|---|
-| Tab switch effect | Lens: a lens slides between tabs / None: a plain accent-colored pill / List (desktop, tablet): one tab per row |
+| Tab switch effect | Lens: a lens slides between tabs / Simple: a plain accent-colored pill / List (desktop, tablet): one tab per row |
 | Panels using the list | With the list, choose the left panel, the right panel, or both |
 | Wide tab bar | Stretches the panel tab pill from edge to edge |
 | Show tab names | Puts the name next to each panel tab icon |
@@ -103,7 +111,7 @@ Change them in **Settings → Community plugins → Glass Shelf Companion**.
 
 - **Built mainly for desktop (Windows) and Android.**
 - On iPhone and iPad, refraction does not work, so only blur is applied.
-- macOS has not been tested thoroughly, so some details may look off.
+- On macOS, we recommend leaving Obsidian's Translucent window setting (Settings → Appearance → Advanced) off. With it on, translucent areas get painted over again each time they redraw and gradually turn darker. This is a limit on the Obsidian and Electron side that the theme and plugin cannot fix.
 
 <p align="center">
   <img src="images/mobile-light.png" width="32%" alt="Mobile, light mode">
@@ -111,7 +119,7 @@ Change them in **Settings → Community plugins → Glass Shelf Companion**.
 </p>
 
 <p align="center">
-  <img src="images/mobile-tab-switch.gif" width="60%" alt="Mobile bottom tab lens switching">
+  <img src="images/mobile-tabs-lens.gif" width="60%" alt="Mobile bottom tab lens switching">
 </p>
 
 ## Privacy
