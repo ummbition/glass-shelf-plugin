@@ -3,7 +3,7 @@
 //   watch 를 주면 고칠 때마다 다시 묶는다
 // 경로 주석이 폴더 기준(// src/main.ts)으로 남아, 어느 PC 에서 묶어도 결과가 바이트 단위로 같다 (스토어 빌드 검증)
 import esbuild from "esbuild";
-import builtins from "builtin-modules";
+import { builtinModules as builtins } from "node:module";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
