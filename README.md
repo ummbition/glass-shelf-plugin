@@ -13,6 +13,8 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
   <img src="images/dark-main.png" width="49%" alt="Dark mode">
 </p>
 
+The screenshots show the left panel tabs as a list with the path display on. Above the editor are the ribbon menu (grid) button, the "folder / folder / file" path pill in the middle and the new tab / reading mode / tab list pill on the right; the right panel shows the outline and the local graph.
+
 ## Features
 
 ### Layout
@@ -24,20 +26,23 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
 - Shrinks the Windows and Linux window controls into small dots
 
 <p align="center">
-  <img src="images/tabs-lens.gif" width="49%" alt="Panel tab lens switching">
+  <img src="images/tabs-lens.gif" width="49%" alt="Panel tab lens switching and search">
   <img src="images/tabs-list.gif" width="49%" alt="Panel tab list">
 </p>
+
+The left GIF shows the lens sliding between panel tabs, and the search field widening out of the magnifier button and closing again.
 
 ### Glass
 - Glass opacity in 11 steps (0–10)
 - Tint: none, accent color, Obsidian purple, or a custom color, with 10 strength steps
 - Refraction that bends the background along glass edges
 - Popups that match menu translucency, or opaque popups
-- Morphing animation where a button grows into its menu, plus press effects
+- Morphing animation where a button grows into its menu, plus press effects. Hold a button and the effect stays at its peak; the light on a held menu item follows the cursor.
 - See-through side panels: your desktop and other windows show through the left and right panels, blurred. Works on Windows 11 22H2 or later with transparency effects turned on in Windows settings. When on, the tab switch effect is shown as Simple instead of Lens.
 
 <p align="center">
-  <img src="images/panel-acrylic.gif" alt="See-through side panels">
+  <img src="images/panel-acrylic.gif" width="64%" alt="See-through side panels">
+  <img src="images/menu.gif" width="23%" alt="Menu and submenu">
 </p>
 
 ### Details
@@ -56,7 +61,8 @@ Companion plugin for the [Glass Shelf theme](https://github.com/ummbition/glass-
   <img src="images/task-checkbox.gif" alt="Task checkbox">
 </p>
 
-### Plugin integration
+### Core features and plugin integration
+- Bases: toolbar buttons become glass pills and circles, and menus grow out of their buttons. The Kanban view groups cards into one gray block, and the Cards view uses flat cards with a thin border.
 - Kanban: restyled to match Glass Shelf
 
 ## What moves where
@@ -65,13 +71,15 @@ With the plugin on, a few buttons move. They work the same; only their place cha
 
 ![Default tab bar](images/tab-bar.png)
 
+This is the tab bar with default settings. Above the left panel are the panel button pill and the Files / Search / Bookmarks tab pill; above the editor are the ribbon menu button, the path pill, the new tab pill and, below them, the editor tab pill; above the right panel are the panel buttons and the Outline / All properties / Backlinks / Outgoing links tab pill.
+
 Turn off **Wide tab bar** and **Show tab names** in the settings for a more compact tab bar.
 
 ![Compact layout with panel tab names turned off](images/compact-layout.png)
 
 ### Ribbon menu
 
-- The vertical ribbon on the left is hidden, and its buttons are gathered into **the grid button (Ribbon menu) at the far left of the editor tab bar**, just left of back/forward.
+- The vertical ribbon on the left is hidden, and its buttons are gathered into **the grid button (Ribbon menu) at the far left of the editor tab bar**.
 - The buttons shown and their order follow **Settings → Appearance → Ribbon menu**.
 - When the left sidebar is closed, the button that opens it also appears at the far left of the tab bar.
 - On tablets, the vault, help and settings buttons are added to the end of the ribbon menu. Phones are unchanged.
@@ -79,13 +87,13 @@ Turn off **Wide tab bar** and **Show tab names** in the settings for a more comp
 ### Sidebar panels
 
 - Panel buttons such as New note, Sort and Collapse all in the file explorer move into **the more-options (···) button in the panel tab bar**.
-- With the wide tab bar setting on, those buttons are laid out in a row instead of the ··· button.
+- With the wide tab bar setting on, those buttons are laid out in a row instead of the ··· button (as in the tab bar above).
 
 ### Editor tab bar
 
-- **Back / forward**: left side of the tab bar
+- **Back / forward**: right of the ribbon menu button. They appear only when there is somewhere to go.
 - **New tab (+), reading mode and tab list**: one pill on the right side of the tab bar. In tabs that have no reading mode, that button folds away and the pill gets narrower. The tab list button still opens the tab list and the tab stacking menu.
-- **More options (≡)**: inside each tab. With the path display on, it moves into the path pill above the tab bar.
+- **More options (≡)**: inside each tab. With the path display on, it moves to the right end of the path pill above the tab bar.
 - **Web viewer**: with the path display on, the address bar sits in the path pill and the pill widens while you edit. With it off, the tab shows only the domain; click it and that tab pill grows into an address bar in the middle of the tab bar. History suggestions appear right below the pill. Reload sits to the right of the path pill (left of the in-tab ≡ when the path is off), and the note's reading-mode button switches its icon to handle reading mode. (Desktop, tablet)
 
 ### Tab settings
@@ -110,16 +118,20 @@ Change them in **Settings → Community plugins → Glass Shelf Companion**.
 ## Supported platforms
 
 - **Built mainly for desktop (Windows) and Android.**
+- On phones, blur is turned off to keep things smooth, and menus that slide up from the bottom show gray groups on a white sheet.
 - On iPhone and iPad, refraction does not work, so only blur is applied.
 - On macOS, we recommend leaving Obsidian's Translucent window setting (Settings → Appearance → Advanced) off. With it on, translucent areas get painted over again each time they redraw and gradually turn darker. This is a limit on the Obsidian and Electron side that the theme and plugin cannot fix.
 
 <p align="center">
-  <img src="images/mobile-light.png" width="32%" alt="Mobile, light mode">
-  <img src="images/mobile-dark.png" width="32%" alt="Mobile, dark mode">
+  <img src="images/mobile-light.png" width="32%" alt="Mobile editor, light mode">
+  <img src="images/mobile-dark.png" width="32%" alt="Mobile file explorer drawer, dark mode">
+  <img src="images/mobile-tabs.png" width="32%" alt="Mobile tab switcher">
 </p>
 
+From left: the editor on a phone (light), the file explorer drawer (dark), and the tab switcher.
+
 <p align="center">
-  <img src="images/mobile-tabs-lens.gif" width="60%" alt="Mobile bottom tab lens switching">
+  <img src="images/mobile-tabs-lens.gif" width="60%" alt="Mobile drawer tab lens switching">
 </p>
 
 ## Privacy
