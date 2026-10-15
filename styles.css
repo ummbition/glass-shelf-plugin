@@ -360,15 +360,28 @@ body.lg-ui.is-tablet .workspace-drawer {
   top: var(--lg-snap-y, 0px);
 }
 
-/* 라이트: 렌즈만 초승달·외곽선을 알약보다 진하게 (탭 렌즈 조율기에서 사용자가 고른 값). 다크는 테마 값(외곽선 없음, 초승달 0.7) 그대로 */
+/* 라이트: 렌즈만 가장자리 선·외곽선을 알약보다 진하게 (탭 렌즈 조율기에서 사용자가 고른 값). 다크는 테마 값(외곽선 없음, 가장자리 선 0.7) 그대로 */
 /* 테마 테두리 토큰은 body 에서 값이 정해져 진하기 변수만 바꿔서는 안 바뀐다. 그래서 같은 짜임을 진하기만 바꿔 다시 쓴다 */
 body:not(.theme-dark) .lg-seg-lens {
-  box-shadow:
-    0 0 0 var(--lg-ol-w) rgb(0 0 0 / 0.22),
-    inset var(--lg-cres-x) 0 0 -0.5px rgb(0 0 0 / 0.4),
-    inset calc(var(--lg-cres-x) * -1) 0 0 -0.5px rgb(0 0 0 / 0.4),
-    var(--lg-rim-in-plain, var(--lg-rim-in)),
-    0 6px 6px 2px rgb(0 0 0 / 0.06), inset 0 6px 6px 2px rgb(0 0 0 / 0.06);
+  box-shadow: var(--lg-rim-in-plain, var(--lg-rim-in));
+  /* 외곽선(22%)은 가장자리 선(40%)과 함께 테두리 칸에 칠한다 */
+  background-image: linear-gradient(to right, rgb(0 0 0 / 0.4), rgb(0 0 0 / 0.22) min(var(--lg-cres-fade), 50%), rgb(0 0 0 / 0.22) max(calc(100% - var(--lg-cres-fade)), 50%), rgb(0 0 0 / 0.4)), none;
+}
+
+/* 렌즈 링 그림자 (사용자 요청): 바깥·안쪽 그림자로 흉내 내지 않고, 렌즈 유리 아래(렌즈 틀의 ::before, 렌즈 층보다 먼저 그려짐)에
+   테두리만 있는 고리를 흐려 깐다. 렌즈 유리가 뒤를 떠 와 굴절하므로 그림자가 유리 너머로 비친다. 렌즈 정도(--lg-g)만큼 나타난다.
+   값은 테마의 링 토큰(--lg-ring·--lg-ring-y·--lg-ring-blur), 편집창 탭과 같다 */
+.lg-seg-indicator::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: var(--lg-ring, 1px solid rgb(0 0 0 / 0.12));
+  border-radius: inherit;
+  corner-shape: inherit;
+  transform: translateY(var(--lg-ring-y, 7px));
+  filter: blur(var(--lg-ring-blur, 3px));
+  opacity: var(--lg-g);
+  pointer-events: none;
 }
 
 .lg-seg-flat {
@@ -380,9 +393,12 @@ body:not(.theme-dark) .lg-seg-lens {
    색조(--lg-tone)는 걸지 않는다: 걸면 뒤 기호가 바탕색으로 옅어져 뿌연 알약처럼 보이고 굴절도 안 보인다 (사용자 지적) */
 .lg-seg-lens {
   opacity: var(--lg-g);
-  background: transparent;
+  /* 가장자리 선: 알약과 같이 투명 테두리 자리에만 칠하는 그라데이션 층 (테마 토큰). 안쪽은 투명 그대로 */
+  border: var(--lg-cres-bd, 0px solid transparent);
+  background: var(--lg-cres-img-plain, none) border-area, transparent;
   /* 틴트는 받지 않는다: 원래 테두리 (사용자 요청) */
-  box-shadow: var(--lg-rim-out-plain, var(--lg-rim-out)), var(--lg-rim-in-plain, var(--lg-rim-in)), 0 6px 6px 2px rgb(0 0 0 / 0.06), inset 0 6px 6px 2px rgb(0 0 0 / 0.06);
+  /* 외곽선은 가장자리 선과 함께 테두리 칸에 칠한다(--lg-cres-img-plain), 그림자에는 위아래 하이라이트만 */
+  box-shadow: var(--lg-rim-in-plain, var(--lg-rim-in));
   -webkit-backdrop-filter: var(--lg-refract,) var(--lg-bright,);
   backdrop-filter: var(--lg-refract,) var(--lg-bright,);
 }
@@ -594,6 +610,10 @@ body.lg-fc-sorting * {
   bottom: auto;
 }
 
+.lg-min-w0:not(#lg):not(#lg):not(#lg):not(#lg) {
+  min-width: 0;
+}
+
 /* 설정 창 뒤로 버튼이 숨을 때 그 자리에 띄우는 사본 (자리·크기는 플러그인이 잰다) */
 .lg-back-ghost:not(#lg):not(#lg):not(#lg):not(#lg) {
   position: fixed;
@@ -626,6 +646,14 @@ body.lg-fc-sorting * {
 /* 창이 작은 동안 안의 내용 크기를 고정할 때 (폭·높이는 인라인으로 잰 값) */
 .lg-pinned:not(#lg):not(#lg):not(#lg):not(#lg) {
   flex: none;
+  /* 고정한 동안 스크롤 막대가 생겨 안 내용이 그만큼 좁아지지 않게 (Bases 필터 메뉴의 속성 칸이 "파…"로 잘렸다, 사용자 지적) */
+  overflow: hidden;
+}
+
+/* 고정한 동안 안쪽 목록(Bases 속성 메뉴의 .suggestion-group 등)도 스크롤 막대를 감춘다: 메뉴가 점에서 커지는 동안 목록이 눌려
+   넘쳐 막대가 생겼다가, 다 커진 뒤 고정을 풀 때 사라졌다 (사용자 지적). 막대만 감추고 스크롤 위치는 그대로다 */
+.lg-pinned:not(#lg):not(#lg):not(#lg):not(#lg) * {
+  scrollbar-width: none;
 }
 
 /* CSS 전환을 잠깐 끈다 (바꾼 직후 계산값을 읽거나, 처음 나타날 때 제자리에서 시작하게) */

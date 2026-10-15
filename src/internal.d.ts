@@ -103,9 +103,13 @@ export interface LgState {
   lgPress?: { t: number; k: number; opt: { duration: number; easing: string } };
   lgRefract?: { strength: number; chroma: boolean; w?: number; h?: number; outward: boolean; look?: RefractLook };
   lgRfTimer?: number;
+  // 굴절을 멈춘 동안 크기가 바뀌어 풀 때 다시 재야 함 (Refractor.setPaused)
+  lgRfStale?: boolean;
   lgTaskAnims?: Animation[] | null;
   lgTaskDone?: boolean;
   lgWcSizes?: { W: number; H: number; w: number; h: number };
+  // 아이콘 버튼 호버 유리 요소 두 개 (번갈아 쓴다, hoverGlassInto)
+  lgHoverPool?: HTMLElement[];
   // 칸반
   lgKbForm?: boolean;
   lgMorph?: { ux: number; uy: number; dot: Box; src?: HTMLElement; anchor?: "left" | "right" } | null;

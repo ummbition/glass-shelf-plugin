@@ -1,7 +1,7 @@
 import { Platform } from "obsidian";
 import { INJECTED, els, tgPad, newEl } from "./util";
-import { EASE, RIPPLE_K, RIPPLE_HOLD, PRESS_PILL, PRESS_GROUP, GROUP_PRESS_K, MOBILE_PRESS_POP, MOBILE_PRESS_PILL, MOBILE_PRESS_BTN } from "./constants";
-import { CAN_REFRACT, HOVER_REFRACT, LENS_TOGGLE, LENS_SLIDER, PRESS_WHITE } from "./refract";
+import { EASE, HOVER_ICON, RIPPLE_K, RIPPLE_HOLD, PRESS_PILL, PRESS_GROUP, GROUP_PRESS_K, MOBILE_PRESS_POP, MOBILE_PRESS_PILL, MOBILE_PRESS_BTN } from "./constants";
+import { CAN_REFRACT, HOVER_REFRACT, LENS_TOGGLE, LENS_SLIDER, PRESS_WHITE, PRESS_IMG } from "./refract";
 import { SL_SHADOW_A, SL_SQUASH, SL_STOP_MS, SL_SQUASH_MOVING, SL_SQUASH_Y, SL_SQUASH_Y_STOP, SL_STOP_MIN, SL_STOP_IN_S, SL_SETTLE_S, lensMotion, LENS_CLEAR_K, LENS_TG_TALL, TAB_PRESS_K } from "./lens";
 import type { GlassShelfPlugin } from "./host";
 
@@ -13,16 +13,44 @@ export const pressMethods = {
     doc.querySelectorAll<HTMLElement>(".modal.mod-settings .setting-search-container input").forEach((el: HTMLElement) => this.refractor.attach(el, 26, false));
   },
 
+  // 아이콘 버튼의 호버 유리 (사용자 요청): 버튼마다 ::before 를 쓰지 않고, 문서에 둘뿐인 요소(.lg-hover-glass)를 커서가 올라간 버튼 맨 앞에 넣는다.
+  // 호버는 한 번에 한 버튼에만 보이므로, 비게 된 ::before 를 알약 링 그림자에 쓴다(테마). 보이고 사라지는 것은 테마의 :hover 규칙이 맡고,
+  // 둘을 번갈아 써서 옆 버튼으로 옮겨 갈 때 떠나는 버튼의 유리가 흐려지는 중에 빼앗기지 않게 한다
+  hoverGlassInto(this: GlassShelfPlugin, el: HTMLElement): HTMLElement | null {
+    if (Platform.isMobile || !el.matches(HOVER_ICON)) return null;
+    const have = el.querySelector<HTMLElement>(":scope > .lg-hover-glass");
+    if (have) return have;
+    const doc = el.ownerDocument;
+    if (!doc.lgHoverPool) {
+      doc.lgHoverPool = [0, 1].map(() => {
+        const g = newEl(doc, "span");
+        g.className = `lg-hover-glass ${INJECTED}`;
+        g.setAttribute("aria-hidden", "true");
+        return g;
+      });
+      this.register(() => {
+        doc.lgHoverPool?.forEach((g) => g.remove());
+        doc.lgHoverPool = undefined;
+      });
+    }
+    // 더 오래전에 쓴 것을 가져온다 (맨 뒤로 보낸다)
+    const pool = doc.lgHoverPool;
+    const g = pool.shift();
+    pool.push(g);
+    el.prepend(g);
+    return g;
+  },
+
   // 단독 원형 버튼: 유리 층이 흰색으로 바뀌며 커졌다가 제자리로
   // 흰색 피크 동안 호버 유리를 거의 투명하게 해 흰 빛이 가려지지 않게 한다
   fadeHover(this: GlassShelfPlugin, el: HTMLElement, opt: KeyframeAnimationOptions) {
-    return el.animate(
-      [
-        { offset: 0.2, opacity: 0.08 },
-        { offset: 0.55, opacity: 0.08 },
-      ],
-      { ...opt, pseudoElement: "::before" }
-    );
+    const frames = [
+      { offset: 0.2, opacity: 0.08 },
+      { offset: 0.55, opacity: 0.08 },
+    ];
+    const g = el.querySelector<HTMLElement>(":scope > .lg-hover-glass");
+    if (g) return g.animate(frames, opt);
+    return el.animate(frames, { ...opt, pseudoElement: "::before" });
   },
 
   // k: 가장 클 때 배율 (기본 1.28)
@@ -32,8 +60,8 @@ export const pressMethods = {
       // 가운데쯤 흰 원이 되어 잠깐(약 0.08초) 머문다 (광택은 사라지고 테두리는 남는다)
       const pop = el.animate(
         [
-          { offset: 0.34, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: "none" },
-          { offset: 0.46, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: "none" },
+          { offset: 0.34, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG },
+          { offset: 0.46, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG },
         ],
         { duration: 600, easing: EASE.press, pseudoElement: "::after" }
       );
@@ -48,7 +76,7 @@ export const pressMethods = {
   pressPopSelf(this: GlassShelfPlugin, el: HTMLElement, k = 1.28) {
     try {
       this.fadeHover(el, { duration: 600, easing: EASE.press });
-      const peak = { scale: String(k), backgroundColor: PRESS_WHITE, backgroundImage: "none" };
+      const peak = { scale: String(k), backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
       el.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 600, easing: EASE.press });
     } catch (err) {
       console.error("[glass-shelf] pop-self", err);
@@ -121,7 +149,7 @@ export const pressMethods = {
     try {
       const r = btn.getBoundingClientRect();
       const k = (1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1))).toFixed(3);
-      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: "none" };
+      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
       btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 570, easing: EASE.press });
     } catch (err) {
       console.error("[glass-shelf] press-pill", err);
@@ -150,7 +178,7 @@ export const pressMethods = {
         return true;
       }
       const peak = { scale: k.toFixed(3) };
-      if (white) Object.assign(peak, { backgroundColor: PRESS_WHITE, backgroundImage: "none" });
+      if (white) Object.assign(peak, { backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG });
       el.animate([Object.assign({ offset: 0.34 }, peak), Object.assign({ offset: 0.46 }, peak)], {
         duration: dur,
         easing: EASE.press,
@@ -544,7 +572,9 @@ export const pressMethods = {
   refractHover(this: GlassShelfPlugin, el: HTMLElement) {
     if (!this.refractOn()) return;
     const win = el.ownerDocument.defaultView || window;
-    const cs = win.getComputedStyle(el, "::before");
+    // 아이콘 버튼은 호버 유리 요소, 나머지(패널 탭·창 버튼·보관함 전환)는 ::before
+    const g = this.hoverGlassInto(el);
+    const cs = g ? win.getComputedStyle(g) : win.getComputedStyle(el, "::before");
     const w = Math.round(parseFloat(cs.width));
     const h = Math.round(parseFloat(cs.height));
     if (!(w >= 4 && h >= 4)) return;

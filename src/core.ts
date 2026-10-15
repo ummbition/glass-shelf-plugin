@@ -56,6 +56,8 @@ export const coreMethods = {
     migrateGlassLevel(raw);
     delete raw.frost; // 예전 0~100 값은 버린다
     delete raw.hoverSize; // 예전 0~10 단계 값은 버린다
+    delete raw.activeTabColor; // 없어진 선택 탭 색 설정은 버린다
+    delete raw.activeTabColorCustom;
     this.shared = Object.assign({}, DEFAULTS, raw);
     this.settings = this.shared;
     try {
@@ -72,6 +74,14 @@ export const coreMethods = {
     this.kbWatched = new WeakSet();
     this.docs = new Set();
     this.refractor = new Refractor();
+    // 모바일: 지난번에 구운 굴절 지도를 화면이 준비된 뒤 쉬는 틈에 미리 굽는다 (Refractor.warmUp, 서랍을 처음 열 때 끊김)
+    if (Platform.isMobile && typeof this.app.loadLocalStorage === "function") {
+      this.refractor.warmIO = {
+        load: () => this.app.loadLocalStorage("lg-rf-warm"),
+        save: (v: string[]) => this.app.saveLocalStorage("lg-rf-warm", v),
+      };
+      this.app.workspace.onLayoutReady(() => window.setTimeout(() => !this.unloaded && this.refractor.warmUp(), 1500));
+    }
     this.attachDoc(document);
     // 이미 열려 있는 별도 창(팝아웃)에도 붙인다: 앱을 켤 때 되살아난 창이나, 테마를 다시 켰을 때 열려 있던 창은 window-open 이 다시 오지 않는다
     this.app.workspace.iterateAllLeaves((leaf) => {
@@ -150,6 +160,10 @@ export const coreMethods = {
     }));
     this.registerEvent(this.app.workspace.on("file-open", () => unMini(this.app.workspace.getMostRecentLeaf())));
     this.register(() => document.querySelectorAll<HTMLElement>(".workspace-tabs.lg-mini").forEach((t) => t.classList.remove("lg-mini")));
+    // Bases 설정(그룹 등)을 바꾸면 .base 파일이 저장된다: 그룹 버튼 표시를 다시 본다
+    this.registerEvent(this.app.vault.on("modify", (f) => {
+      if (f.path.endsWith(".base")) this.app.workspace.getLeavesOfType("bases").forEach((l) => l.view instanceof ItemView && this.basesGroupMark(l.view));
+    }));
     this.registerEvent(this.app.workspace.on("window-open", (win) => win && win.doc && this.attachDoc(win.doc)));
 
     // 설정 창은 별도 창(다른 document)으로 뜰 수 있다. 열려 있으면 그 창에도 같은 동작을 붙인다.
@@ -401,6 +415,9 @@ export const coreMethods = {
         while (g.firstChild) g.parentElement.insertBefore(g.firstChild, g);
       });
       doc.querySelectorAll<HTMLElement>(".lg-kb-searching").forEach((el: HTMLElement) => el.classList.remove("lg-kb-searching"));
+      doc.querySelectorAll<HTMLElement>(".lg-kb-search-btn").forEach((el: HTMLElement) => el.classList.remove("lg-kb-search-btn"));
+      doc.querySelectorAll<HTMLElement>(".lg-dashed").forEach((el: HTMLElement) => el.classList.remove("lg-dashed"));
+      doc.querySelectorAll<HTMLElement>(".bases-toolbar .lg-on").forEach((el: HTMLElement) => el.classList.remove("lg-on"));
       doc.querySelectorAll<HTMLElement>(".lg-tab-tools").forEach((g) => {
         while (g.firstChild) g.parentElement.insertBefore(g.firstChild, g);
       });
@@ -521,6 +538,7 @@ export const coreMethods = {
       }
     }
     if (!Platform.isPhone) ws.getLeavesOfType("kanban").forEach((l) => l.view instanceof ItemView && this.setupKanban(l.view));
+    if (!Platform.isPhone) ws.getLeavesOfType("bases").forEach((l) => l.view instanceof ItemView && this.setupBases(l.view));
     this.refractor.prune();
     if (this.refractOn()) {
       for (const [sel, strength] of Platform.isMobile ? REFRACT_TARGETS.concat(REFRACT_TARGETS_MOBILE) : REFRACT_TARGETS) {

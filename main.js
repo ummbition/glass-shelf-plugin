@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => GlassShelfCompanion
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian13 = require("obsidian");
+var import_obsidian14 = require("obsidian");
 
 // src/core.ts
 var import_obsidian5 = require("obsidian");
@@ -327,9 +327,12 @@ var migrateGlassLevel = function(o) {
 };
 
 // src/constants.ts
+var HOVER_ICON = ".clickable-icon:not(.lg-tab-menu):not(.workspace-tab-header-inner-close-button), .bases-toolbar .bases-toolbar-item > .text-icon-button, .bases-kanban-column-footer > .text-icon-button";
 var HOVER_GLASS = [
   ".clickable-icon:not(.lg-tab-menu):not(.workspace-tab-header-inner-close-button)",
   ".workspace-drawer-vault-switcher",
+  ".bases-toolbar .bases-toolbar-item > .text-icon-button",
+  ".bases-kanban-column-footer > .text-icon-button",
   ".mod-left-split .workspace-tab-header",
   ".mod-right-split .workspace-tab-header",
   ".titlebar-button-container.mod-right .titlebar-button",
@@ -346,10 +349,15 @@ var PRESS_POP = [
   ".lg-tab-mode",
   ".lg-rib-menu",
   ".workspace-drawer-vault-actions .clickable-icon",
-  ".graph-controls.is-close .graph-controls-button"
+  ".graph-controls.is-close .graph-controls-button",
+  // Bases 칸반 목록 아래 추가 버튼 (사용자 요청, 유리가 ::after 라 같은 효과가 그대로 걸린다)
+  ".bases-kanban-column-footer > .text-icon-button"
 ].join(", ");
 var MORPH_DASH = 30;
+var BASES_MENU_BTN = ":is(.bases-toolbar-views-menu, .bases-toolbar-result-count, .bases-toolbar-sort-menu, .bases-toolbar-group-menu, .bases-toolbar-filter-menu, .bases-toolbar-properties-menu) > .text-icon-button";
 var PRESS_DELAY_MS = 90;
+var HOLD_RETURN_MS = 260;
+var HOLD_EASE_SPAN = 0.14;
 var PRESS_SLOP = 10;
 var MORPH_OVERSHOOT = 5;
 var MORPH_NUDGE = 3;
@@ -434,7 +442,11 @@ var REFRACT_TARGETS = [
   [".lg-tab-nav, .lg-nav-run, .lg-path-pill, .side-dock-actions, .workspace-drawer-vault-switcher, .status-bar, .lg-kb-group, .lg-tab-tools", 26],
   [".mod-left-split .workspace-tab-header-container-inner, .mod-right-split .workspace-tab-header-container-inner", 26],
   [".mod-root .workspace-tab-header-container .workspace-tab-header.is-active", 23],
-  [".titlebar-button-container.mod-right", 26]
+  [".titlebar-button-container.mod-right", 26],
+  // Bases 툴바 버튼: 알약은 다른 알약, 기호만 있는 원은 다른 원 버튼과 같은 세기 (사용자 지적: 알약과 값이 달랐다)
+  [".bases-toolbar .bases-toolbar-item:not(.bases-toolbar-search, .bases-toolbar-new-item-menu) > .text-icon-button", 26],
+  // Bases 칸반 목록 아래 추가 버튼도 툴바 원형 버튼과 같다 (사용자 요청)
+  [".bases-toolbar :is(.bases-toolbar-search, .bases-toolbar-new-item-menu) > .text-icon-button, .bases-kanban-column-footer > .text-icon-button", 32]
 ];
 var REFRACT_TARGETS_MOBILE = [
   [".mobile-navbar.mod-raised, .view-header .view-actions.mod-raised, .mobile-toolbar-options-list-container.mod-raised", 26],
@@ -469,12 +481,21 @@ var LENS_DEFAULT = { minify: LENS_MINIFY, flat: LENS_MINIFY_FLAT, edge: LENS_MIN
 var LENS_TOGGLE = { minify: 1.2, flat: 0.9, edge: 0.1, reach: 0.86, shape: 1 };
 var LENS_SLIDER = { minify: 1, flat: 0.9, edge: 0.2, reach: 0.55, shape: 1 };
 var MAP_CACHE = 200;
+var WARM_MAX = 40;
+var LENS_SHADE = 0.04;
 var LENS_TAB = { minify: 1.2, flat: 0.94, edge: 2, reach: 1.1, shape: 1, line: true, box: true };
+var LENS_TAB_PC = { ...LENS_TAB, minify: 1.3 };
 var LENS_TAB_TEXT = { minify: 1, flat: 0.6, edge: 0.2, reach: 0.9, shape: 1 };
 var PRESS_WHITE = "color(srgb 1 1 1)";
+var PRESS_IMG = "var(--lg-cres-img), none";
 var Refractor = class {
   constructor() {
     this.enabled = false;
+    this.paused = false;
+    this.held = null;
+    this.warm = [];
+    this.warmIO = null;
+    this.warmTimer = 0;
     this.stores = /* @__PURE__ */ new Map();
     this.maps = /* @__PURE__ */ new Map();
     this.resizeObs = new ResizeObserver((entries) => {
@@ -497,6 +518,71 @@ var Refractor = class {
       });
       this.tracked.clear();
     }
+  }
+  // 휴대폰 메뉴 시트·서랍이 보이는 동안 굴절을 멈춘다: 시트·서랍이 움직이는 동안 그 위아래 유리의 굴절 필터(SVG 변위)가
+  // 매 프레임 다시 계산돼 끊겼다 (사용자 지적, 휴대폰 녹화 측정: 움직이는 동안 프레임 간격 평균 약 32ms → 굴절을 끄면 약 21ms,
+  // 같은 크기의 빈 시트를 올릴 때와 같다). 시트와 어둡게 덮는 층 아래라 굴절이 빠져도 거의 보이지 않는다.
+  // 뗀 값은 그대로 들고 있다가 되붙인다: 되붙일 때 다시 재면(update) 요소마다 폭을 읽고 쓰기를 번갈아 해 레이아웃을 여러 번 다시 했다.
+  // 값이 없는 요소는 건드리지 않는다(걸 때마다 그 아래 요소 전체의 스타일을 다시 계산한다)
+  setPaused(on) {
+    if (this.paused === on) return;
+    this.paused = on;
+    if (on) {
+      this.held = /* @__PURE__ */ new Map();
+      this.tracked.forEach((el) => {
+        const v = el.style.getPropertyValue("--lg-refract");
+        if (!v) return;
+        this.held.set(el, v);
+        el.style.removeProperty("--lg-refract");
+      });
+    } else {
+      const held = this.held || /* @__PURE__ */ new Map();
+      this.held = null;
+      this.tracked.forEach((el) => {
+        if (!el.isConnected || !el.lgRefract) return;
+        const v = held.get(el);
+        const stale = el.lgRfStale;
+        el.lgRfStale = false;
+        if (v && !stale && el.ownerDocument.getElementById(v.slice(5, -1))) el.style.setProperty("--lg-refract", v);
+        else this.update(el);
+      });
+    }
+  }
+  // 휴대폰에서 서랍을 처음 열 때 서랍 안 유리의 지도를 그 자리에서 굽느라 끊겼다 (사용자 지적, 휴대폰을 새로 켠 뒤 측정: 첫 열기에 지도 굽기 약 45ms).
+  // 그 지도들의 크기·값을 기억해 두었다가(최근 WARM_MAX 개) 다음에 켤 때 화면이 준비된 뒤 쉬는 틈에 굽는다. 쓰는 곳은 그대로 filterFor 가 캐시에서 찾는다
+  noteWarm(sig) {
+    if (!this.warmIO) return;
+    const i = this.warm.indexOf(sig);
+    if (i >= 0) this.warm.splice(i, 1);
+    this.warm.push(sig);
+    if (this.warm.length > WARM_MAX) this.warm.shift();
+    window.clearTimeout(this.warmTimer);
+    this.warmTimer = window.setTimeout(() => this.warmIO && this.warmIO.save(this.warm), 2e3);
+  }
+  warmUp() {
+    if (!this.warmIO || !this.enabled) return;
+    const v = this.warmIO.load();
+    const list = Array.isArray(v) ? v.filter((x) => typeof x === "string") : [];
+    this.warm = list.slice(-WARM_MAX);
+    const todo = [...this.warm];
+    const idle = (fn) => window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 3e3 }) : window.setTimeout(fn, 50);
+    const next = () => idle((dl) => {
+      while (todo.length && (!dl || dl.timeRemaining() > 8)) {
+        const [w, h, bezel, spread, bezelMax] = todo.shift().split("|").map(Number);
+        if (!(w >= 4 && h >= 4)) continue;
+        const mapKey = `${w}x${h}-b${Math.round(bezel * 100)}-s${Math.round(spread * 100)}-m${Math.round(bezelMax * 10)}`;
+        if (this.maps.has(mapKey)) continue;
+        try {
+          this.maps.set(mapKey, { url: this.bakeMap(w, h, false, bezel, spread, bezelMax) });
+        } catch (err) {
+          console.error("[glass-shelf] warm", err);
+          return;
+        }
+        if (this.maps.size > MAP_CACHE) this.maps.delete(this.maps.keys().next().value);
+      }
+      if (todo.length && this.enabled) next();
+    });
+    next();
   }
   // 문서에서 떨어진 요소는 감시를 끊고 목록에서 뺀다 (닫힌 탭 헤더 등)
   prune() {
@@ -542,6 +628,10 @@ var Refractor = class {
     this.update(el);
   }
   update(el) {
+    if (this.paused) {
+      el.lgRfStale = true;
+      return;
+    }
     if (!el.isConnected) {
       this.tracked.delete(el);
       this.resizeObs.unobserve(el);
@@ -558,20 +648,26 @@ var Refractor = class {
   // bezel: 굴절이 일어나는 가장자리 폭 (반지름 대비 비율)
   // 지도가 없는 곳은 무변위(회색 128) 바탕으로 채워, 필터 결과에 투명한 곳이 생기지 않게 한다 (안전장치)
   // bezel 을 주지 않으면 기본 비율 (데스크톱 0.6, 모바일은 버튼이 커서 가장자리를 더 넓게 0.75)
-  filterFor(w, h, strength, chroma, outward, doc = document, bezel = BEZEL_RATIO, spread = REFRACT_SPREAD, lens = LENS_DEFAULT, bezelMax = BEZEL_MAX) {
+  // shadeTag: 탭 렌즈만. 주면 렌즈 안에서 탭 줄 알약 밖(패널 바탕)에서 끌려온 픽셀만 LENS_SHADE 만큼 어둡게 하는 필터를 렌즈마다 따로 만든다.
+  // 알약 모양 그림(feImage, 자리는 shadeAt 이 매 프레임 옮긴다)을 렌즈와 같은 지도로 휘게 해, 굴절된 픽셀이 어디서 왔는지 안다
+  filterFor(w, h, strength, chroma, outward, doc = document, bezel = BEZEL_RATIO, spread = REFRACT_SPREAD, lens = LENS_DEFAULT, bezelMax = BEZEL_MAX, shadeTag = "") {
     const bz = Math.round(bezel * 100);
     const sp = Math.round(spread * 100);
     const lensTag = lens === LENS_DEFAULT ? "lens" : `lens-${[lens.minify, lens.flat, lens.edge, lens.reach, lens.shape || 2].join("-").replace(/\./g, "p")}${lens.line ? "-ln" : ""}${lens.box ? "-bx" : ""}`;
     const bm = Math.round(bezelMax * 10);
+    const shade = outward && !chroma && shadeTag ? shadeTag : "";
     const mapKey = outward ? `${w}x${h}-${lensTag}` : `${w}x${h}-b${bz}-s${sp}-m${bm}`;
     let baked = this.maps.get(mapKey);
     if (baked) this.maps.delete(mapKey);
-    else baked = outward ? this.bakeLensMap(w, h, lens) : { url: this.bakeMap(w, h, false, bezel, spread, bezelMax) };
+    else {
+      baked = outward ? this.bakeLensMap(w, h, lens) : { url: this.bakeMap(w, h, false, bezel, spread, bezelMax) };
+      if (!outward) this.noteWarm(`${w}|${h}|${bezel}|${spread}|${bezelMax}`);
+    }
     this.maps.set(mapKey, baked);
     if (this.maps.size > MAP_CACHE) this.maps.delete(this.maps.keys().next().value);
     const map = baked.url;
     if (outward) strength = baked.scale;
-    const key = outward ? `lg-rf-${w}x${h}-${lensTag}` : `lg-rf-${w}x${h}-${String(strength).replace(/\./g, "p")}${chroma ? "c" : ""}-b${bz}-s${sp}-m${bm}`;
+    const key = outward ? `lg-rf-${w}x${h}-${lensTag}${shade ? `-sh${shade}` : ""}` : `lg-rf-${w}x${h}-${String(strength).replace(/\./g, "p")}${chroma ? "c" : ""}-b${bz}-s${sp}-m${bm}`;
     const st = this.store(doc);
     if (st.filters.has(key)) return key;
     const f = doc.createElementNS(SVG_NS, "filter");
@@ -639,6 +735,45 @@ var Refractor = class {
       keep("db", 2, "b");
       blend("r", "g", "rg");
       blend("rg", "b");
+    } else if (shade) {
+      disp(strength, "out");
+      const ci = doc.createElementNS(SVG_NS, "feImage");
+      ci.setAttribute("x", "0");
+      ci.setAttribute("y", "0");
+      ci.setAttribute("width", String(w));
+      ci.setAttribute("height", String(h));
+      ci.setAttribute("preserveAspectRatio", "none");
+      ci.setAttribute("result", "cimg");
+      ci.setAttribute("data-lg-shade", "1");
+      f.appendChild(ci);
+      const cd = doc.createElementNS(SVG_NS, "feDisplacementMap");
+      cd.setAttribute("in", "cimg");
+      cd.setAttribute("in2", "map");
+      cd.setAttribute("scale", String(strength));
+      cd.setAttribute("xChannelSelector", "R");
+      cd.setAttribute("yChannelSelector", "G");
+      cd.setAttribute("result", "cmask0");
+      f.appendChild(cd);
+      const cb = doc.createElementNS(SVG_NS, "feGaussianBlur");
+      cb.setAttribute("in", "cmask0");
+      cb.setAttribute("stdDeviation", "0.7");
+      cb.setAttribute("result", "cmask");
+      f.appendChild(cb);
+      const m = doc.createElementNS(SVG_NS, "feColorMatrix");
+      m.setAttribute("in", "cmask");
+      m.setAttribute("type", "matrix");
+      m.setAttribute("values", "0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 1");
+      m.setAttribute("result", "shade");
+      f.appendChild(m);
+      const c = doc.createElementNS(SVG_NS, "feComposite");
+      c.setAttribute("in", "out");
+      c.setAttribute("in2", "shade");
+      c.setAttribute("operator", "arithmetic");
+      c.setAttribute("k1", String(LENS_SHADE));
+      c.setAttribute("k2", String(1 - LENS_SHADE));
+      c.setAttribute("k3", "0");
+      c.setAttribute("k4", "0");
+      f.appendChild(c);
     } else {
       disp(strength, "out");
     }
@@ -646,6 +781,23 @@ var Refractor = class {
     st.filters.set(key, f);
     if (st.filters.size > 80) this.pruneFilters(doc, st, key);
     return key;
+  }
+  // 렌즈 그늘 필터의 알약 모양 그림을 지금 자리로 (렌즈 좌표). 같은 값이면 쓰지 않는다 (쓰면 필터를 다시 계산한다)
+  shadeAt(doc, id, x, y, w, h, rx) {
+    const f = this.store(doc).filters.get(id);
+    const ci = f && f.querySelector('[data-lg-shade="1"]');
+    if (!ci) return;
+    const W = Math.max(1, Math.round(w)), H = Math.max(1, Math.round(h));
+    const R = Math.min(W / 2, Math.round(rx)), Ry = H / 2;
+    const href = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" rx="${R}" ry="${Ry}" fill="#fff"/></svg>`)}`;
+    const set = (k, v) => {
+      if (ci.getAttribute(k) !== v) ci.setAttribute(k, v);
+    };
+    set("href", href);
+    set("x", x.toFixed(1));
+    set("y", y.toFixed(1));
+    set("width", String(W));
+    set("height", String(H));
   }
   // 필터가 많이 쌓이면 지금 어떤 요소도 쓰지 않는 것을 지운다
   pruneFilters(doc, st, keep) {
@@ -1373,6 +1525,8 @@ var coreMethods = {
     migrateGlassLevel(raw);
     delete raw.frost;
     delete raw.hoverSize;
+    delete raw.activeTabColor;
+    delete raw.activeTabColorCustom;
     this.shared = Object.assign({}, DEFAULTS, raw);
     this.settings = this.shared;
     try {
@@ -1386,6 +1540,13 @@ var coreMethods = {
     this.kbWatched = /* @__PURE__ */ new WeakSet();
     this.docs = /* @__PURE__ */ new Set();
     this.refractor = new Refractor();
+    if (import_obsidian5.Platform.isMobile && typeof this.app.loadLocalStorage === "function") {
+      this.refractor.warmIO = {
+        load: () => this.app.loadLocalStorage("lg-rf-warm"),
+        save: (v) => this.app.saveLocalStorage("lg-rf-warm", v)
+      };
+      this.app.workspace.onLayoutReady(() => window.setTimeout(() => !this.unloaded && this.refractor.warmUp(), 1500));
+    }
     this.attachDoc(document);
     this.app.workspace.iterateAllLeaves((leaf) => {
       const d = leaf.view && leaf.view.containerEl && leaf.view.containerEl.ownerDocument;
@@ -1454,6 +1615,9 @@ var coreMethods = {
     }));
     this.registerEvent(this.app.workspace.on("file-open", () => unMini(this.app.workspace.getMostRecentLeaf())));
     this.register(() => document.querySelectorAll(".workspace-tabs.lg-mini").forEach((t) => t.classList.remove("lg-mini")));
+    this.registerEvent(this.app.vault.on("modify", (f) => {
+      if (f.path.endsWith(".base")) this.app.workspace.getLeavesOfType("bases").forEach((l) => l.view instanceof import_obsidian5.ItemView && this.basesGroupMark(l.view));
+    }));
     this.registerEvent(this.app.workspace.on("window-open", (win) => win && win.doc && this.attachDoc(win.doc)));
     const findSettings = () => {
       const st = this.app.setting;
@@ -1671,6 +1835,9 @@ var coreMethods = {
         while (g.firstChild) g.parentElement.insertBefore(g.firstChild, g);
       });
       doc.querySelectorAll(".lg-kb-searching").forEach((el) => el.classList.remove("lg-kb-searching"));
+      doc.querySelectorAll(".lg-kb-search-btn").forEach((el) => el.classList.remove("lg-kb-search-btn"));
+      doc.querySelectorAll(".lg-dashed").forEach((el) => el.classList.remove("lg-dashed"));
+      doc.querySelectorAll(".bases-toolbar .lg-on").forEach((el) => el.classList.remove("lg-on"));
       doc.querySelectorAll(".lg-tab-tools").forEach((g) => {
         while (g.firstChild) g.parentElement.insertBefore(g.firstChild, g);
       });
@@ -1775,6 +1942,7 @@ var coreMethods = {
       }
     }
     if (!import_obsidian5.Platform.isPhone) ws.getLeavesOfType("kanban").forEach((l) => l.view instanceof import_obsidian5.ItemView && this.setupKanban(l.view));
+    if (!import_obsidian5.Platform.isPhone) ws.getLeavesOfType("bases").forEach((l) => l.view instanceof import_obsidian5.ItemView && this.setupBases(l.view));
     this.refractor.prune();
     if (this.refractOn()) {
       for (const [sel, strength] of import_obsidian5.Platform.isMobile ? REFRACT_TARGETS.concat(REFRACT_TARGETS_MOBILE) : REFRACT_TARGETS) {
@@ -1924,7 +2092,7 @@ var eventsMethods = {
     if (!import_obsidian6.Platform.isMobile) this.attachDragScroll(doc, win);
     this.applyBodyState(doc);
     const watchModal = (m) => {
-      if (!m.classList || !m.classList.contains("modal-container")) return;
+      if (!m.classList || !(m.classList.contains("modal-container") || m.classList.contains("bases-toolbar-menu"))) return;
       if (!this.ddWatched) this.ddWatched = /* @__PURE__ */ new WeakSet();
       if (this.ddWatched.has(m)) return;
       this.ddWatched.add(m);
@@ -2038,6 +2206,7 @@ var eventsMethods = {
             if (el) {
               magnetRect = magnetBox(el);
               magnetAt = win.performance.now();
+              this.hoverGlassInto(el);
               this.refractHover(el);
             }
           }
@@ -2130,6 +2299,98 @@ var eventsMethods = {
         }
       }
     };
+    let holding = false;
+    let held = [];
+    let slowed = [];
+    let heldPlay = [];
+    let holdRaf = 0;
+    let holdTimer = 0;
+    const hasOffsets = (a, x, y) => {
+      const ef = a.effect;
+      const k = ef && typeof ef.getKeyframes === "function" ? ef.getKeyframes() : [];
+      return k.some((f) => Math.abs((f.offset ?? -1) - x) < 1e-3) && k.some((f) => Math.abs((f.offset ?? -1) - y) < 1e-3);
+    };
+    const holdScan = () => {
+      if (!holding) return;
+      for (const a of doc.getAnimations()) {
+        if (a.playState !== "running" || held.includes(a) || heldPlay.includes(a)) continue;
+        const tgt = a.effect?.target;
+        const menuRip = !!tgt && !!tgt.parentElement?.classList.contains("lg-ripple-menu");
+        const span = menuRip ? [RIPPLE_HOLD, RIPPLE_HOLD] : hasOffsets(a, 0.34, 0.46) ? [0.34, 0.46] : hasOffsets(a, 0.2, 0.55) ? [0.2, 0.55] : null;
+        if (!span || !a.effect) continue;
+        const prog = () => Number(a.effect.getComputedTiming().progress) || 0;
+        const p = prog();
+        if (p < span[0]) {
+          if (p >= span[0] - HOLD_EASE_SPAN) {
+            a.updatePlaybackRate(Math.max(0.15, (span[0] - p) / HOLD_EASE_SPAN));
+            if (!slowed.includes(a)) slowed.push(a);
+          }
+          continue;
+        }
+        a.pause();
+        const goal = (span[0] + span[1]) / 2;
+        let lo = 0, hi = Number(a.currentTime) || 0;
+        for (let i = 0; i < 14; i++) {
+          const mid = (lo + hi) / 2;
+          a.currentTime = mid;
+          if (prog() < goal) lo = mid;
+          else hi = mid;
+        }
+        a.currentTime = hi;
+        (menuRip ? heldPlay : held).push(a);
+      }
+      holdRaf = win.requestAnimationFrame(holdScan);
+    };
+    const holdRelease = () => {
+      holding = false;
+      win.cancelAnimationFrame(holdRaf);
+      win.clearTimeout(holdTimer);
+      for (const a of held) {
+        try {
+          const ef = a.effect;
+          const target = ef && ef.target;
+          if (!ef || !target || !target.isConnected) {
+            a.cancel();
+            continue;
+          }
+          const kf = ef.getKeyframes();
+          const peak = kf.find((f) => Math.abs((f.offset ?? -1) - 0.34) < 1e-3) || kf.find((f) => Math.abs((f.offset ?? -1) - 0.2) < 1e-3);
+          const from = {};
+          if (peak) {
+            for (const [k, v] of Object.entries(peak)) if (!["offset", "computedOffset", "easing", "composite"].includes(k)) from[k] = v;
+          }
+          a.cancel();
+          target.animate([{ ...from, offset: 0 }], { duration: HOLD_RETURN_MS, easing: EASE.press, pseudoElement: ef.pseudoElement || void 0 });
+        } catch {
+        }
+      }
+      held = [];
+      for (const a of heldPlay) {
+        try {
+          a.updatePlaybackRate(1);
+          a.play();
+        } catch {
+        }
+      }
+      heldPlay = [];
+      for (const a of slowed) {
+        try {
+          if (a.playState !== "idle") a.updatePlaybackRate(1);
+        } catch {
+        }
+      }
+      slowed = [];
+    };
+    this.registerDomEvent(doc, "pointerdown", (e) => {
+      if (e.button !== 0) return;
+      holdRelease();
+      holding = true;
+      holdRaf = win.requestAnimationFrame(holdScan);
+      holdTimer = win.setTimeout(holdRelease, 5e3);
+    }, { capture: true });
+    this.registerDomEvent(doc, "pointerup", holdRelease, { capture: true });
+    this.registerDomEvent(doc, "pointercancel", holdRelease, { capture: true });
+    this.register(holdRelease);
     if (!import_obsidian6.Platform.isMobile) {
       this.registerDomEvent(doc, "pointerdown", pressFx, { capture: true });
     } else {
@@ -2284,9 +2545,30 @@ var eventsMethods = {
         }
         for (const n of r.removedNodes) if (isMenu(n) && !import_obsidian6.Platform.isPhone) this.closeMenu(n, doc);
       }
+      if (import_obsidian6.Platform.isPhone) phonePause();
     });
     menuObs.observe(doc.body, { childList: true });
     this.observers.push(menuObs);
+    const phonePause = () => {
+      const menu = els(doc.querySelectorAll(".menu")).some((m) => !m.classList.contains("lg-menu-ghost"));
+      const drawer = els(doc.querySelectorAll(".workspace-drawer")).some((d) => d.style.display !== "none" && !!d.style.transform);
+      this.refractor.setPaused(menu || drawer);
+    };
+    if (import_obsidian6.Platform.isPhone && doc === document) {
+      const drawerObs = new win.MutationObserver(phonePause);
+      const seen = /* @__PURE__ */ new WeakSet();
+      const hookDrawers = () => {
+        els(doc.querySelectorAll(".workspace-drawer")).forEach((d) => {
+          if (seen.has(d)) return;
+          seen.add(d);
+          drawerObs.observe(d, { attributes: true, attributeFilter: ["style"] });
+        });
+        phonePause();
+      };
+      this.observers.push(drawerObs);
+      this.app.workspace.onLayoutReady(hookDrawers);
+      this.registerEvent(this.app.workspace.on("layout-change", hookDrawers));
+    }
     const unlockTabs = (e) => {
       if (!isEl(e.target)) return;
       const close = e.target.closest(".mod-root .workspace-tab-header-inner-close-button");
@@ -2537,9 +2819,10 @@ var eventsMethods = {
 };
 
 // src/press.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian8 = require("obsidian");
 
 // src/lens.ts
+var import_obsidian7 = require("obsidian");
 var SL_SHADOW_A = 0.45;
 var SL_SQUASH = 0.2;
 var SL_STOP_MS = 50;
@@ -2558,12 +2841,13 @@ var lensMotion = function(u, reach) {
 };
 var LENS_CLEAR_K = 2.2;
 var LENS_TG_TALL = 3;
+var shadeSeq = 0;
 var scaleOf = (ow, r) => ow && Math.abs(r.width - ow) >= 1 ? r.width / ow : 1;
 var CLONE_BOX = ["display", "flex-direction", "flex-wrap", "align-items", "justify-content", "gap", "padding", "font-size", "font-weight", "line-height", "letter-spacing", "text-align", "white-space"];
 var CLONE_SIZE = ["width", "height", "min-width", "margin", "flex-grow", "flex-shrink", "flex-basis", "align-self", "order"];
 var TAB_LENS_MS = 80;
 var TAB_PRESS_K = 0.5;
-var TAB_LENS_W = 1.2;
+var TAB_LENS_W = 1.8;
 var TAB_GROW_MS = 90;
 var TAB_GROW_FWD = 9;
 var MOBILE_TAB_GROW_FWD = 0;
@@ -2574,6 +2858,7 @@ var TAB_SQUASH_AT = 0.25;
 var TAB_SQUASH_HOLD = 0.25;
 var TAB_STRETCH = 0.08;
 var TAB_STRETCH_H = 0.08;
+var TAB_SQUASH_SMALL = 0.7;
 var MOBILE_TAB_GROW = 1.1;
 var MOBILE_TAB_SQUASH = 0.1;
 var TAB_RESTORE_MS = 600;
@@ -2605,7 +2890,8 @@ var SegmentLens = class {
   }
   measure() {
     const hr = this.header.getBoundingClientRect();
-    const innerH = this.inner.getBoundingClientRect().height;
+    const ir = this.inner.getBoundingClientRect();
+    const innerH = ir.height;
     const tabs = [];
     for (const tab of Array.from(this.inner.querySelectorAll(":scope > .workspace-tab-header"))) {
       const tr2 = tab.getBoundingClientRect();
@@ -2613,7 +2899,7 @@ var SegmentLens = class {
       const ti = tab.querySelector(":scope > .workspace-tab-header-inner");
       tabs.push({ tab, ti, tr: tr2, tir: ti ? ti.getBoundingClientRect() : null, ow: tab.offsetWidth, tiow: ti ? ti.offsetWidth : 0 });
     }
-    return { hr, innerH, tabs };
+    return { hr, innerH, ir, tabs };
   }
   moveTo(fromTab, toTab) {
     if (this.plugin.tabPlain() || this.header.closest(".lg-tab-list")) return this.stop();
@@ -2640,13 +2926,21 @@ var SegmentLens = class {
     if (!this.raf) this.raf = window.requestAnimationFrame((t) => this.step(t));
   }
   // 렌즈 크기에 맞는 굴절 필터 (2px 단위로 묶어 지도 수를 줄인다)
-  filterAt(w, h, look = LENS_TAB) {
+  // shade: 렌즈 안 탭 줄 알약 밖(패널 바탕)이 어둡게 비치는 필터 (렌즈마다 따로, Refractor.filterFor 의 shadeTag)
+  filterAt(w, h, look = LENS_TAB, shade = false) {
     const q = (v) => Math.max(4, Math.round(v / 2) * 2);
-    return this.plugin.refractor.filterFor(q(w), q(h), 42, false, true, this.header.ownerDocument, void 0, void 0, look);
+    if (this.keepH) shade = false;
+    if (look === LENS_TAB && !this.keepH) look = LENS_TAB_PC;
+    if (shade && !this.shadeTag) this.shadeTag = String(++shadeSeq);
+    return this.plugin.refractor.filterFor(q(w), q(h), 42, false, true, this.header.ownerDocument, void 0, void 0, look, void 0, shade ? this.shadeTag : "");
   }
   // 렌즈 안 글자는 탭 줄과 따로 굴절한다 (사용자 요청: 한 굴절로 같이 휘면 가운데 선 방식에서 글자가 옆으로 늘어진다).
   // 원래 탭 글자(.workspace-tab-header-inner)는 렌즈 모양만큼 잘라 숨겨 렌즈 유리가 탭 줄만 떠 오게 하고,
   // 렌즈 자리에 탭 복사본을 렌즈 모양으로 잘라 올려 글자 전용 굴절(LENS_TAB_TEXT)을 건다. 굴절 세기는 렌즈 정도 g 를 따른다
+  // 모바일은 글자에 굴절을 걸지 않는다 (사용자 결정): 복사본은 렌즈 위에 그대로 올려 글자가 휘지 않고 또렷하게 보인다.
+  // 탭 줄 굴절과 글자 굴절 두 필터가 매 프레임 돌아 보기 전환이 끊겼고, 둘 중 글자 쪽이 더 무거웠다
+  // (휴대폰 녹화 측정, 움직이는 동안 프레임 간격 평균: 둘 다 약 19.5ms, 글자 굴절 끔 약 16.8ms, 둘 다 끔 약 15.5ms).
+  // 복사본을 아예 빼면 원래 글자가 렌즈(탭 목록 위 층) 아래에 깔려 렌즈 굴절에 같이 휜다
   textLens(x0, y0, vw, vh, g, m) {
     const tabs = m.tabs.map((x) => x.tab);
     if (!this.refract || g <= 0 || !tabs.length) return this.textOff();
@@ -2675,7 +2969,8 @@ var SegmentLens = class {
       this.textInner = this.textEl.createDiv();
       this.textSig = "";
     }
-    const sig = tabs.map((t) => t.getAttribute("aria-label") || t.textContent || "").join("");
+    const bc = this.header.ownerDocument.body.classList;
+    const sig = tabs.map((t) => t.getAttribute("aria-label") || t.textContent || "").join("") + `|${bc.contains("lg-tab-names") ? 1 : 0}${bc.contains("lg-tab-wide") ? 1 : 0}`;
     const actSig = tabs.map((t) => t.hasClass("is-active") ? "1" : "0").join("");
     const pairs = (tab, c) => {
       const src = [tab, ...Array.from(tab.querySelectorAll("*"))];
@@ -2684,6 +2979,7 @@ var SegmentLens = class {
     };
     const copyInk = (tab, c) => {
       c.classList.toggle("is-active", tab.hasClass("is-active"));
+      c.classList.remove("mobile-tap");
       for (const [s2, d] of pairs(tab, c)) {
         if (s2.closest("svg") && s2.tagName.toLowerCase() !== "svg") continue;
         const cs = getComputedStyle(s2);
@@ -2697,6 +2993,7 @@ var SegmentLens = class {
       this.textInner.empty();
       for (const tab of tabs) {
         const c = tab.cloneNode(true);
+        c.classList.remove("mobile-tap");
         pairs(tab, c).forEach(([s2, d], i) => {
           d.style.removeProperty("clip-path");
           if (s2.closest("svg") && s2.tagName.toLowerCase() !== "svg") return;
@@ -2740,6 +3037,10 @@ var SegmentLens = class {
     put(this.textEl, "border-radius", `${n(vh * this.rx)}px / ${n(r)}px`);
     put(this.textInner, "left", `${(-px0).toFixed(3)}px`);
     put(this.textInner, "top", `${(-py0).toFixed(3)}px`);
+    if (import_obsidian7.Platform.isMobile) {
+      if (s.filter) s.removeProperty("filter");
+      return;
+    }
     const id = this.filterAt(vw, vh, LENS_TAB_TEXT);
     const f = this.header.ownerDocument.getElementById(id);
     const dm = f && f.querySelector("feDisplacementMap");
@@ -2773,7 +3074,7 @@ var SegmentLens = class {
     const legs = [[r.width, r.height, w1, h1], [w1, h1, w2, h2], [w2, h2, r.width, r.height]];
     const sizes = [];
     for (const [w0, h0, wa, ha] of legs) for (let k = 0; k <= 1.0001; k += 0.05) sizes.push([w0 + (wa - w0) * k, h0 + (ha - h0) * k]);
-    const texts = sizes.map(([w, h]) => [w, h, 1]);
+    const texts = import_obsidian7.Platform.isMobile ? [] : sizes.map(([w, h]) => [w, h, 1]);
     const win = this.header.ownerDocument.defaultView || window;
     const ref = this.plugin.refractor;
     const idle = (fn) => win.requestIdleCallback ? win.requestIdleCallback(fn, { timeout: 2e3 }) : win.setTimeout(fn, 50);
@@ -2783,7 +3084,7 @@ var SegmentLens = class {
         const sz = sizes.shift();
         const [w, h, txt] = sz ? [sz[0], sz[1], 0] : texts.shift();
         try {
-          this.filterAt(w, h, txt ? LENS_TAB_TEXT : LENS_TAB);
+          this.filterAt(w, h, txt ? LENS_TAB_TEXT : LENS_TAB, !txt);
         } catch (err) {
           console.error("[glass-shelf] prebake", err);
           return;
@@ -2836,7 +3137,12 @@ var SegmentLens = class {
     const w1 = b.w + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? b.h : Hc;
     const h2 = this.keepH ? b.h * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
-    const SQ = this.keepH ? MOBILE_TAB_SQUASH : TAB_SQUASH;
+    const tabsEl = this.header.closest(".workspace-tabs");
+    const small = !this.keepH && !!tabsEl && !this.plugin.tabWideOf(tabsEl) && !this.plugin.settings.tabNames;
+    const f = small ? TAB_SQUASH_SMALL : 1;
+    const SQ = (this.keepH ? MOBILE_TAB_SQUASH : TAB_SQUASH) * f;
+    const ST = TAB_STRETCH * f;
+    const STH = TAB_STRETCH_H * f;
     const FWD = this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD;
     const w2 = b.w + h2 * TAB_REF_RATIO - R + FWD;
     const lead = b.cx + dir * b.w / 2 + dir * FWD * (1 - smooth(clamp01((t - D) / TAB_SHRINK_MS)));
@@ -2874,7 +3180,7 @@ var SegmentLens = class {
       bh = lerp(h2, b.h, k);
       g = 1 - k;
       const sq = SQ * R / bw;
-      const st = TAB_STRETCH * R / bw;
+      const st = ST * R / bw;
       if (x < TAB_SQUASH_AT) {
         const q = x / TAB_SQUASH_AT;
         sx = 1 - sq * (1 - Math.pow(1 - q, 2));
@@ -2883,7 +3189,7 @@ var SegmentLens = class {
       } else {
         const q = smooth((x - TAB_SQUASH_AT - TAB_SQUASH_HOLD) / (1 - TAB_SQUASH_AT - TAB_SQUASH_HOLD));
         sx = lerp(1 - sq, 1 + st, q);
-        sy = 1 - TAB_STRETCH_H * q;
+        sy = 1 - STH * q;
       }
       cx = lead - dir * bw * sx / 2;
       cy = b.cy;
@@ -2893,8 +3199,8 @@ var SegmentLens = class {
       bw = b.w;
       bh = b.h;
       g = 0;
-      sx = lerp(1 + TAB_STRETCH * R / b.w, 1, k);
-      sy = lerp(1 - TAB_STRETCH_H, 1, k);
+      sx = lerp(1 + ST * R / b.w, 1, k);
+      sy = lerp(1 - STH, 1, k);
       cx = lead - dir * bw * sx / 2;
       cy = b.cy;
     } else {
@@ -2912,8 +3218,11 @@ var SegmentLens = class {
     el.classList.toggle("lg-seg-on", true);
     if (el.style.getPropertyValue("--lg-g") !== g.toFixed(3)) el.style.setProperty("--lg-g", g.toFixed(3));
     if (this.refract && g > 0) {
-      const v = `url(#${this.filterAt(bw, bh)})`;
+      const id = this.filterAt(bw, bh, LENS_TAB, true);
+      const v = `url(#${id})`;
       if (this.lensEl.style.getPropertyValue("--lg-refract") !== v) this.lensEl.style.setProperty("--lg-refract", v);
+      const ir = m.ir, x0 = cx - bw * sx / 2 - (ir.left - m.hr.left), y0 = cy - bh * sy / 2 - (ir.top - m.hr.top);
+      if (!this.keepH) this.plugin.refractor.shadeAt(this.header.ownerDocument, id, -x0 / sx, -y0 / sy, ir.width / sx, ir.height / sy, ir.height * this.rx / sx);
     }
     this.textLens(cx - bw * sx / 2, cy - bh * sy / 2, bw * sx, bh * sy, g, m);
     this.raf = window.requestAnimationFrame((tt) => this.step(tt));
@@ -2928,16 +3237,42 @@ var pressMethods = {
     if (!this.refractOn() || !doc.body) return;
     doc.querySelectorAll(".modal.mod-settings .setting-search-container input").forEach((el) => this.refractor.attach(el, 26, false));
   },
+  // 아이콘 버튼의 호버 유리 (사용자 요청): 버튼마다 ::before 를 쓰지 않고, 문서에 둘뿐인 요소(.lg-hover-glass)를 커서가 올라간 버튼 맨 앞에 넣는다.
+  // 호버는 한 번에 한 버튼에만 보이므로, 비게 된 ::before 를 알약 링 그림자에 쓴다(테마). 보이고 사라지는 것은 테마의 :hover 규칙이 맡고,
+  // 둘을 번갈아 써서 옆 버튼으로 옮겨 갈 때 떠나는 버튼의 유리가 흐려지는 중에 빼앗기지 않게 한다
+  hoverGlassInto(el) {
+    if (import_obsidian8.Platform.isMobile || !el.matches(HOVER_ICON)) return null;
+    const have = el.querySelector(":scope > .lg-hover-glass");
+    if (have) return have;
+    const doc = el.ownerDocument;
+    if (!doc.lgHoverPool) {
+      doc.lgHoverPool = [0, 1].map(() => {
+        const g2 = newEl(doc, "span");
+        g2.className = `lg-hover-glass ${INJECTED}`;
+        g2.setAttribute("aria-hidden", "true");
+        return g2;
+      });
+      this.register(() => {
+        doc.lgHoverPool?.forEach((g2) => g2.remove());
+        doc.lgHoverPool = void 0;
+      });
+    }
+    const pool = doc.lgHoverPool;
+    const g = pool.shift();
+    pool.push(g);
+    el.prepend(g);
+    return g;
+  },
   // 단독 원형 버튼: 유리 층이 흰색으로 바뀌며 커졌다가 제자리로
   // 흰색 피크 동안 호버 유리를 거의 투명하게 해 흰 빛이 가려지지 않게 한다
   fadeHover(el, opt) {
-    return el.animate(
-      [
-        { offset: 0.2, opacity: 0.08 },
-        { offset: 0.55, opacity: 0.08 }
-      ],
-      { ...opt, pseudoElement: "::before" }
-    );
+    const frames = [
+      { offset: 0.2, opacity: 0.08 },
+      { offset: 0.55, opacity: 0.08 }
+    ];
+    const g = el.querySelector(":scope > .lg-hover-glass");
+    if (g) return g.animate(frames, opt);
+    return el.animate(frames, { ...opt, pseudoElement: "::before" });
   },
   // k: 가장 클 때 배율 (기본 1.28)
   pressPop(el, k = 1.28) {
@@ -2945,8 +3280,8 @@ var pressMethods = {
       const hover = this.fadeHover(el, { duration: 600, easing: EASE.press });
       const pop = el.animate(
         [
-          { offset: 0.34, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: "none" },
-          { offset: 0.46, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: "none" }
+          { offset: 0.34, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG },
+          { offset: 0.46, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG }
         ],
         { duration: 600, easing: EASE.press, pseudoElement: "::after" }
       );
@@ -2960,7 +3295,7 @@ var pressMethods = {
   pressPopSelf(el, k = 1.28) {
     try {
       this.fadeHover(el, { duration: 600, easing: EASE.press });
-      const peak = { scale: String(k), backgroundColor: PRESS_WHITE, backgroundImage: "none" };
+      const peak = { scale: String(k), backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
       el.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 600, easing: EASE.press });
     } catch (err) {
       console.error("[glass-shelf] pop-self", err);
@@ -3019,7 +3354,7 @@ var pressMethods = {
     try {
       const r = btn.getBoundingClientRect();
       const k = (1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1))).toFixed(3);
-      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: "none" };
+      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
       btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 570, easing: EASE.press });
     } catch (err) {
       console.error("[glass-shelf] press-pill", err);
@@ -3046,7 +3381,7 @@ var pressMethods = {
         return true;
       }
       const peak = { scale: k.toFixed(3) };
-      if (white) Object.assign(peak, { backgroundColor: PRESS_WHITE, backgroundImage: "none" });
+      if (white) Object.assign(peak, { backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG });
       el.animate([Object.assign({ offset: 0.34 }, peak), Object.assign({ offset: 0.46 }, peak)], {
         duration: dur,
         easing: EASE.press
@@ -3233,7 +3568,7 @@ var pressMethods = {
       const puff = 1 + 0.5 * m.g;
       const sx = puff * (1 + m.d);
       const g = m.g;
-      const sy = puff * (1 - m.d * 0.7) * (import_obsidian7.Platform.isMobile ? (th + LENS_TG_TALL * g) / th : 1);
+      const sy = puff * (1 - m.d * 0.7) * (import_obsidian8.Platform.isMobile ? (th + LENS_TG_TALL * g) / th : 1);
       frames.push({
         offset: u,
         // 렌즈가 되면 위아래로 실제 높이를 조금 더 키운다. 모서리 반지름은 원래 알약 그대로 고정해서(곡률 유지)
@@ -3250,11 +3585,11 @@ var pressMethods = {
         webkitBackdropFilter: backdrop
       });
     }
-    if (import_obsidian7.Platform.isMobile) for (const f of frames) {
+    if (import_obsidian8.Platform.isMobile) for (const f of frames) {
       delete f.height;
       delete f.top;
     }
-    if (import_obsidian7.Platform.isMobile) for (const f of frames) delete f.boxShadow;
+    if (import_obsidian8.Platform.isMobile) for (const f of frames) delete f.boxShadow;
     const anim = c.animate(frames, { duration: 320, easing: "linear", pseudoElement: "::after" });
     const done = () => c.classList.remove("lg-tg-anim");
     anim.onfinish = done;
@@ -3404,7 +3739,8 @@ var pressMethods = {
   refractHover(el) {
     if (!this.refractOn()) return;
     const win = el.ownerDocument.defaultView || window;
-    const cs = win.getComputedStyle(el, "::before");
+    const g = this.hoverGlassInto(el);
+    const cs = g ? win.getComputedStyle(g) : win.getComputedStyle(el, "::before");
     const w = Math.round(parseFloat(cs.width));
     const h = Math.round(parseFloat(cs.height));
     if (!(w >= 4 && h >= 4)) return;
@@ -3486,6 +3822,73 @@ var kanbanMethods = {
     const br = btn.getBoundingClientRect();
     sw.style.setProperty("--lg-kb-top", `${br.top - pr.top}px`);
     sw.style.setProperty("--lg-kb-right", `${pr.right - br.right}px`);
+  },
+  // ---------- Bases (테마 Bases 절과 짝) ----------
+  // 검색 버튼은 칸반 검색과 같은 클래스(.lg-kb-search-btn, 보기에 .lg-kb-searching)를 써서 같은 넓어짐·누름 효과를 받는다 (사용자 요청).
+  // Obsidian 은 검색 줄(.bases-search-row)을 툴바 아래 보기 내용 맨 위에 그린다. 켜져 있는 동안 그 줄을 넓어진 버튼 위로 옮긴다(테마)
+  setupBases(view) {
+    const root = view && view.containerEl;
+    const content = view && view.contentEl;
+    if (!root || !root.isConnected || !content) return;
+    const btn = content.querySelector(".bases-toolbar-search > .text-icon-button");
+    if (btn && !btn.classList.contains("lg-kb-search-btn")) btn.classList.add("lg-kb-search-btn");
+    const win = content.ownerDocument.defaultView || window;
+    if (!this.kbWatched.has(content)) {
+      const watch = new win.MutationObserver(() => this.setupBases(view));
+      watch.observe(content, { childList: true });
+      this.kbWatched.add(content);
+      this.observers.push(watch);
+    }
+    const row = content.querySelector(":scope > .bases-search-row");
+    if (row && !this.kbWatched.has(row)) {
+      const obs = new win.MutationObserver(() => this.basesSearch(root, content));
+      obs.observe(row, { attributes: true, attributeFilter: ["style", "class"] });
+      this.kbWatched.add(row);
+      this.observers.push(obs);
+    }
+    if (btn && !this.kbWatched.has(btn)) {
+      const obs = new win.MutationObserver(() => this.basesSearch(root, content));
+      obs.observe(btn, { attributes: true, attributeFilter: ["class"] });
+      this.kbWatched.add(btn);
+      this.observers.push(obs);
+    }
+    const bar = content.querySelector(".bases-toolbar");
+    if (bar && !this.kbWatched.has(bar)) {
+      const obs = new win.MutationObserver(() => this.basesGroupMark(view));
+      obs.observe(bar, { childList: true, subtree: true, characterData: true });
+      this.kbWatched.add(bar);
+      this.observers.push(obs);
+    }
+    this.basesGroupMark(view);
+    this.basesSearch(root, content);
+  },
+  // 지금 보기에 그룹이 걸려 있으면 그룹 버튼에 .lg-on (테마: 강조색). Obsidian 은 그룹 버튼에 표시가 없다.
+  // 설정은 Bases 내부 값(controller.view.config)을 읽기만 한다
+  basesGroupMark(view) {
+    const btn = view.contentEl.querySelector(".bases-toolbar-group-menu > .text-icon-button");
+    if (!btn) return;
+    const ctl = view.controller;
+    let on = false;
+    try {
+      const cfg = ctl && ctl.view && ctl.view.config;
+      const g = cfg && cfg.get ? cfg.get("groupBy") : null;
+      on = !!g;
+    } catch {
+      on = false;
+    }
+    if (btn.classList.contains("lg-on") !== on) btn.classList.toggle("lg-on", on);
+  },
+  basesSearch(root, content) {
+    const row = content.querySelector(":scope > .bases-search-row");
+    const btn = content.querySelector(".bases-toolbar-search > .lg-kb-search-btn");
+    const on = !!(row && btn && btn.classList.contains("is-active") && row.style.display !== "none");
+    if (root.classList.contains("lg-kb-searching") !== on) root.classList.toggle("lg-kb-searching", on);
+    if (!on) return;
+    const op = row.offsetParent || content;
+    const pr = op.getBoundingClientRect();
+    const br = btn.getBoundingClientRect();
+    row.style.setProperty("--lg-kb-top", `${br.top - pr.top}px`);
+    row.style.setProperty("--lg-kb-right", `${pr.right - br.right}px`);
   },
   // 카드 추가 입력 칸을 닫으면 Kanban 이 입력 칸을 다시 카드 추가 버튼으로 바꿔 끼운다.
   // 그 버튼이 유리 흰색에서 강조색으로 서서히 돌아오게 한다 (사용자 요청, 열 때의 반대)
@@ -3704,7 +4107,7 @@ var kanbanMethods = {
       const r = btn.getBoundingClientRect();
       const k = (1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1))).toFixed(3);
       const opt = { duration: 570, easing: EASE.press };
-      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: "none" };
+      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
       const accent = win.getComputedStyle(btn).backgroundColor;
       const t0 = win.performance.now();
       btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], opt);
@@ -3726,7 +4129,12 @@ var kanbanMethods = {
 };
 
 // src/menus.ts
-var import_obsidian8 = require("obsidian");
+var import_obsidian9 = require("obsidian");
+function itemTop(el, menu) {
+  let y = 0;
+  for (let e = el; e && e !== menu; e = e.offsetParent) y += e.offsetTop;
+  return y;
+}
 var menusMethods = {
   // 메뉴가 뜰 때: 커지는 기준점을 누른 자리로 둔다.
   // 방금 누른 게 없으면(하위 메뉴·키보드) 부모 메뉴 쪽 위 모서리에서 커진다.
@@ -3736,6 +4144,15 @@ var menusMethods = {
     if (menu.lgSnap) return;
     const doc = menu.ownerDocument;
     const win = doc.defaultView || window;
+    if (menu.lgReady) {
+      menu.classList.remove("lg-menu-ready", "lg-menu-morph", "lg-bottom-auto", "lg-no-anim", "lg-min-w0");
+      menu.style.removeProperty("width");
+      menu.getAnimations().forEach((a) => a.cancel());
+      menu.lgReady = false;
+      menu.lgMorph = null;
+      menu.lgMoveFrom = null;
+      menu.lgReplaced = false;
+    }
     win.setTimeout(() => menu.classList.add("lg-menu-ready"), 400);
     const now = win.performance.now();
     menu.lgBorn = now;
@@ -3751,7 +4168,7 @@ var menusMethods = {
       popSize();
       win.requestAnimationFrame(popSize);
     });
-    const pressed = press && now - press.t < (import_obsidian8.Platform.isMobile ? 1500 : 600);
+    const pressed = press && now - press.t < (import_obsidian9.Platform.isMobile ? 1500 : 600);
     if (pressed) this.webPopTint(menu, press.target);
     const outside = pressed && !(isEl(press.target) && press.target.closest(".menu"));
     const sub = els(doc.querySelectorAll(".menu")).some((m) => m !== menu && !m.classList.contains("lg-menu-ghost") && !(outside && press.t > (m.lgBorn || 0)));
@@ -3771,14 +4188,33 @@ var menusMethods = {
       }
     }
     const target = fresh2 && isEl(press.target) ? press.target : null;
-    const morphSel = import_obsidian8.Platform.isPhone ? ".workspace-drawer-vault-switcher, select.dropdown" : ".workspace-drawer-vault-switcher, select.dropdown, .mod-community-modal .community-modal-search > .clickable-icon";
+    const morphSel = import_obsidian9.Platform.isPhone ? `.workspace-drawer-vault-switcher, select.dropdown, ${BASES_MENU_BTN}` : `.workspace-drawer-vault-switcher, select.dropdown, .mod-community-modal .community-modal-search > .clickable-icon, ${BASES_MENU_BTN}`;
     const src = target && target.closest(morphSel);
     if (src) menu.classList.add("lg-menu-morph");
+    const settle = !!src && src.matches(BASES_MENU_BTN);
+    let lastPos = "";
+    let still = 0;
     const run = (tries) => {
       if (!menu.isConnected) return;
-      if ((menu.offsetWidth < 2 || menu.offsetHeight < 2) && tries < 6) return win.requestAnimationFrame(() => run(tries + 1));
+      if ((menu.offsetWidth < 2 || menu.offsetHeight < 2) && tries < 6) {
+        win.requestAnimationFrame(() => run(tries + 1));
+        return;
+      }
+      if (settle && tries < 24) {
+        const r = menu.getBoundingClientRect();
+        const pos = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`;
+        still = pos === lastPos ? still + 1 : 0;
+        lastPos = pos;
+        if (still < 1) {
+          win.requestAnimationFrame(() => run(tries + 1));
+          return;
+        }
+      }
       try {
-        if (src) return this.morphMenu(menu, src);
+        if (src) {
+          this.morphMenu(menu, src, settle);
+          return;
+        }
         const list = target && target.closest(".mod-root .workspace-tab-header-tab-list");
         const tabMenu = target && target.closest(".lg-tab-menu");
         const pathMenu = target && target.closest(".lg-path-menu");
@@ -3790,6 +4226,8 @@ var menusMethods = {
         const row = target && target.closest(".metadata-property");
         if (row) this.focusRow(menu, row);
         const subUp = sub ? this.tuckSubmenu(menu) : false;
+        const conj = sub && pressed && isEl(press.target) ? press.target.closest(".bases-query-container select.conjunction.dropdown") : null;
+        if (conj) this.placeBesideSelect(menu, conj);
         const r = menu.getBoundingClientRect();
         let ox;
         let oy;
@@ -3847,21 +4285,29 @@ var menusMethods = {
     }
     const items = menu.querySelectorAll(".menu-item");
     if (!items.length) return false;
-    const rel = (el) => {
-      let y2 = 0;
-      for (let e = el; e && e !== menu; e = e.offsetParent) y2 += e.offsetTop;
-      return y2;
-    };
     const top = parseFloat(menu.style.top);
     const y0 = Number.isFinite(top) ? top : menu.offsetTop;
     const h = menu.offsetHeight;
     const up = y0 + h <= ir.top + 4;
     const last = items[items.length - 1];
-    let y = up ? ir.bottom - (rel(last) + last.offsetHeight) : ir.top - rel(items[0]);
+    let y = up ? ir.bottom - (itemTop(last, menu) + last.offsetHeight) : ir.top - itemTop(items[0], menu);
     const vh = (doc.defaultView || window).innerHeight;
     y = Math.max(4, Math.min(y, vh - h - 4));
     menu.style.top = `${y.toFixed(1)}px`;
     return up;
+  },
+  // 드롭다운 메뉴를 드롭다운 오른쪽 옆에 둔다(오른쪽에 자리가 없으면 왼쪽 옆). 첫 항목 위 끝을 드롭다운 위 끝에 맞춘다 (tuckSubmenu 와 같은 세로 규칙)
+  placeBesideSelect(menu, sel) {
+    const win = menu.ownerDocument.defaultView || window;
+    const items = menu.querySelectorAll(".menu-item");
+    if (!items.length) return;
+    const r = sel.getBoundingClientRect();
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    const x = r.right + w <= win.innerWidth - 4 ? r.right : Math.max(4, r.left - w);
+    const y = Math.max(4, Math.min(r.top - itemTop(items[0], menu), win.innerHeight - h - 4));
+    menu.style.left = `${x.toFixed(1)}px`;
+    menu.style.top = `${y.toFixed(1)}px`;
   },
   // 검색 탭의 검색 제안: 검색창 유리(.search-input-container::after)가 제안 높이만큼 아래로 늘어나고,
   // 제안 목록은 배경 없이 그 늘어난 자리에 놓인다. 제안이 닫히면 다시 줄어든다
@@ -3982,7 +4428,7 @@ var menusMethods = {
   // 설정 화면 등이 운영체제 목록에서 고른 것과 똑같이 받는다
   openDropdownMenu(sel) {
     const win = sel.ownerDocument.defaultView || window;
-    const menu = new import_obsidian8.Menu();
+    const menu = new import_obsidian9.Menu();
     sel.lgPickIdx = 0;
     let idx = 0;
     for (const opt of Array.from(sel.options)) {
@@ -4011,7 +4457,8 @@ var menusMethods = {
   // 보관함 전환 메뉴: 버튼이 메뉴의 왼쪽 아래 꼭짓점에 오게 둔다(위에 자리가 없으면 왼쪽 위 꼭짓점).
   // 버튼은 메뉴 가운데를 향해 돌진하며 작아져 사라지고, 둘 사이 중간 지점에서 메뉴 창이 넓어져 나온다.
   // 창 크기만 바뀌고 안의 내용은 제자리에 그대로 있다
-  morphMenu(menu, src) {
+  // keep: 메뉴를 옮기지 않고 Obsidian 이 둔 자리를 목표로 넓어진다 (Bases 보기 메뉴)
+  morphMenu(menu, src, keep = false) {
     const win = menu.ownerDocument.defaultView || window;
     const b = src.getBoundingClientRect();
     const drop = src.matches("select");
@@ -4031,9 +4478,13 @@ var menusMethods = {
       menu.style.width = `${W}px`;
       menu.style.removeProperty("min-width");
     }
+    if (keep) {
+      menu.style.width = `${W}px`;
+      menu.classList.add("lg-min-w0");
+    }
     const downFirst = src.matches(".mod-community-modal .community-modal-search > .clickable-icon");
-    const top = drop ? up ? b.bottom - H : b.top : downFirst ? b.top + H <= win.innerHeight - 8 ? b.top : Math.max(8, b.bottom - H) : b.bottom - H >= 8 ? b.bottom - H : b.top;
-    const left = drop ? Math.max(8, b.right - W) : src.matches(".workspace-drawer-vault-switcher") ? Math.max(16, b.left) : b.left;
+    const top = keep ? b.bottom + 4 : drop ? up ? b.bottom - H : b.top : downFirst ? b.top + H <= win.innerHeight - 8 ? b.top : Math.max(8, b.bottom - H) : b.bottom - H >= 8 ? b.bottom - H : b.top;
+    const left = keep ? Math.max(10, Math.min(win.innerWidth - W - 10, b.left)) : drop ? Math.max(8, b.right - W) : src.matches(".workspace-drawer-vault-switcher") ? Math.max(16, b.left) : b.left;
     const anchor = drop ? "right" : "left";
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
@@ -4059,8 +4510,14 @@ var menusMethods = {
       inner.scrollTop += pr.top - ir.top - (inner.clientHeight - pr.height) / 2;
     }
     if (inner) this.pinSize(inner);
-    const grow = this.growBox(menu, inner ? [{ el: inner, anchor }] : [], dot, full, 90);
-    if (inner) grow.onfinish = grow.oncancel = () => this.unpinSize(inner);
+    const grow = this.growBox(menu, inner ? [{ el: inner, anchor, layout: true }] : [], dot, full, 90);
+    grow.onfinish = grow.oncancel = () => {
+      if (inner) this.unpinSize(inner);
+      if (keep) {
+        menu.style.removeProperty("width");
+        menu.classList.remove("lg-min-w0");
+      }
+    };
     if (inner) inner.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, delay: 120, easing: "ease-out", fill: "backwards" });
   },
   // 메뉴가 닫히면(Obsidian 이 떼어 낸 직후, 그리기 전) 똑같은 사본을 띄워 사라지는 모습을 그린다.
@@ -4087,7 +4544,7 @@ var menusMethods = {
         const inner = ghost.querySelector(".menu-scroll");
         if (inner) this.pinSize(inner);
         if (inner) inner.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 60, easing: "ease-in", fill: "forwards" });
-        this.shrinkBox(ghost, inner && !drop ? [{ el: inner, anchor: anchor || "left" }] : [], full, dot).onfinish = () => ghost.remove();
+        this.shrinkBox(ghost, inner && !drop ? [{ el: inner, anchor: anchor || "left", layout: true }] : [], full, dot).onfinish = () => ghost.remove();
         if (src.lgHide) {
           src.lgHide.cancel();
           src.lgHide = null;
@@ -4270,7 +4727,12 @@ var morphMethods = {
     for (const kid of kids) {
       const ax = (x) => kid.anchor === "right" ? x.left + x.width : x.left;
       kid.el.animate(
-        frames.map((fr) => meta(fr, fr.box ? { translate: `${ax(keep) - ax(fr.box)}px ${keep.top - fr.box.top}px` } : {})),
+        frames.map(
+          (fr) => meta(
+            fr,
+            !fr.box ? {} : kid.layout ? { marginLeft: `${ax(keep) - ax(fr.box)}px`, marginTop: `${keep.top - fr.box.top}px` } : { translate: `${ax(keep) - ax(fr.box)}px ${keep.top - fr.box.top}px` }
+          )
+        ),
         opt
       );
     }
@@ -4319,7 +4781,7 @@ var morphMethods = {
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     if (el.matches(".lg-kb-group")) return (w - h * KB_PILL_DOT) / 2;
-    return el.matches(".workspace-drawer-vault-switcher") && w > h * 1.3 ? (w - h) / 2 : 0;
+    return el.matches(`.workspace-drawer-vault-switcher, ${BASES_MENU_BTN}`) && w > h * 1.3 ? (w - h) / 2 : 0;
   },
   // 버튼이 흐려지고 나타나는 효과. 요소 자체의 opacity 를 움직이면 그동안 요소가 뒤 화면을 떠 오는 경계(Backdrop Root)가 되어
   // 유리 층(::after)의 채움·색조·굴절이 꺼졌다가 애니메이션이 끝나야 돌아온다. 그래서 유리 층과 안의 내용에 따로 건다.
@@ -4330,6 +4792,7 @@ var morphMethods = {
     const glassy = (n) => win.getComputedStyle(n, "::after").backdropFilter !== "none";
     const anims = [];
     const walk = (n, top) => {
+      if (n.classList.contains("lg-hover-glass")) return;
       if (glassy(n)) {
         anims.push(n.animate(frames, { ...opt, pseudoElement: "::after" }));
         for (const c of n.children) walk(c, false);
@@ -4345,6 +4808,7 @@ var morphMethods = {
   // 버튼이 (ux, uy) 방향으로 MORPH_DASH 만큼 움직이며 투명하게 사라진다 (사라진 채로 남는다)
   dashOut(el, ux, uy) {
     const d = MORPH_DASH;
+    el.classList.add("lg-dashed");
     const c = this.pillInset(el);
     const slow = el.matches(".lg-kb-group");
     const dur = slow ? KB_DASH_MS : 160;
@@ -4360,13 +4824,14 @@ var morphMethods = {
     if (slow) {
       for (const k of el.children) el.lgFade?.push(k.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 90, easing: "ease-in", fill: "forwards" }));
     }
-    const out = el.animate([{ translate: "0 0" }, { translate: `${(ux * d).toFixed(1)}px ${(uy * d).toFixed(1)}px` }], opt);
+    const out = this.dashMove(el, [{ translate: "0 0" }, { translate: `${(ux * d).toFixed(1)}px ${(uy * d).toFixed(1)}px` }], opt);
     out.id = "lg-dash-out";
     return out;
   },
   // 사라졌던 버튼이 돌진했던 자리에서 나타나 제자리를 반대쪽으로 MORPH_OVERSHOOT 만큼 지나쳤다가 돌아온다
   dashBack(el, ux, uy, delay) {
     const d = MORPH_DASH;
+    el.classList.remove("lg-dashed");
     const o = MORPH_OVERSHOOT;
     if (el.lgGlassAnim) {
       el.lgGlassAnim.cancel();
@@ -4385,7 +4850,8 @@ var morphMethods = {
     }
     const opt = { duration: 360, delay, easing: "ease-out", fill: "backwards" };
     this.fadeParts(el, [{ opacity: 0 }, { offset: 0.3, opacity: 1 }, { opacity: 1 }], opt);
-    const back = el.animate(
+    const back = this.dashMove(
+      el,
       [
         { translate: `${(ux * d).toFixed(1)}px ${(uy * d).toFixed(1)}px` },
         { offset: 0.6, translate: `${(-ux * o).toFixed(1)}px ${(-uy * o).toFixed(1)}px` },
@@ -4395,6 +4861,15 @@ var morphMethods = {
     );
     back.id = "lg-dash-back";
     return back;
+  },
+  // 돌진 움직임. Bases 보기 버튼은 요소 자체를 옮기지 않고 보이는 층(유리 ::after, 링 ::before, 안의 내용)만 옮긴다:
+  // Obsidian 이 그 메뉴를 버튼 자리 기준으로 매 프레임 다시 놓아, 버튼을 옮기면 메뉴가 따라 내려갔다 (사용자 지적)
+  dashMove(el, frames, opt) {
+    if (!el.matches(BASES_MENU_BTN)) return el.animate(frames, opt);
+    const main = el.animate(frames, { ...opt, pseudoElement: "::after" });
+    const rest = [el.animate(frames, { ...opt, pseudoElement: "::before" }), ...Array.from(el.children).filter((k) => !k.classList.contains("lg-hover-glass")).map((k) => k.animate(frames, opt))];
+    main.addEventListener("cancel", () => rest.forEach((a) => a.cancel()));
+    return main;
   },
   // 그래프 설정 창: 설정 버튼(원)이 창의 오른쪽 위 꼭짓점. 버튼은 창 가운데를 향해 돌진하며 사라지고,
   // 둘 사이 중간 지점에서 창이 넓어져 나온다. 창 크기만 바뀌고 안의 내용은 제자리에 있다.
@@ -4479,7 +4954,7 @@ var morphMethods = {
 };
 
 // src/folders.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian10 = require("obsidian");
 var foldersMethods = {
   // 폴더 기호 색 (CSS: --lg-folder-icon). 파랑은 테마의 기호를 그대로 쓴다.
   // 그 밖의 색은 테마 파랑 폴더와 같은 짜임으로 다시 그린다: 앞판 아래 = 고른 색, 앞판 위 = 흰색 22%, 뒤판 = 검정 15%, 빛 선 = 흰색 55%
@@ -4512,14 +4987,14 @@ var foldersMethods = {
     }
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof import_obsidian9.TFolder) || file.isRoot()) return;
+        if (!(file instanceof import_obsidian10.TFolder) || file.isRoot()) return;
         menu.addItem((item) => item.setTitle(tr("\uD3F4\uB354 \uC0C9", "Folder color")).setIcon("palette").onClick(() => this.pickFolderColor(file)));
       })
     );
     const nameUsed = (name) => this.app.vault.getAllFolders().some((f) => f.name === name);
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
-        if (!(file instanceof import_obsidian9.TFolder)) return;
+        if (!(file instanceof import_obsidian10.TFolder)) return;
         const map = this.shared.folderColorsByName;
         const oldName = oldPath.split("/").pop();
         if (oldName === file.name || !map[oldName] || nameUsed(oldName)) return;
@@ -4530,7 +5005,7 @@ var foldersMethods = {
     );
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
-        if (!(file instanceof import_obsidian9.TFolder)) return;
+        if (!(file instanceof import_obsidian10.TFolder)) return;
         const map = this.shared.folderColorsByName;
         if (!map[file.name] || nameUsed(file.name)) return;
         delete map[file.name];
@@ -4550,7 +5025,7 @@ var foldersMethods = {
       if (hex) map[folder.name] = hex;
       else delete map[folder.name];
       const n = this.app.vault.getAllFolders().filter((f) => f.name === folder.name).length;
-      if (n > 1) new import_obsidian9.Notice(tr(`'${folder.name}' \uC774\uB984\uC758 \uD3F4\uB354 ${n}\uAC1C\uC5D0 ${hex ? "\uC0C9\uC744 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4." : "\uC9C0\uC815\uD55C \uC0C9\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4."}`, `${hex ? "Applied the color to" : "Cleared the color of"} ${n} folders named '${folder.name}'.`));
+      if (n > 1) new import_obsidian10.Notice(tr(`'${folder.name}' \uC774\uB984\uC758 \uD3F4\uB354 ${n}\uAC1C\uC5D0 ${hex ? "\uC0C9\uC744 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4." : "\uC9C0\uC815\uD55C \uC0C9\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4."}`, `${hex ? "Applied the color to" : "Cleared the color of"} ${n} folders named '${folder.name}'.`));
       void this.saveFolderColors();
     }, this.folderPalette()).open();
   },
@@ -4664,7 +5139,7 @@ var foldersMethods = {
   applyStripes(list) {
     const m = this.rowExtent(list);
     let layer = list.querySelector(":scope > .lg-stripes");
-    if (!this.settings.fileStripes || import_obsidian9.Platform.isMobile) {
+    if (!this.settings.fileStripes || import_obsidian10.Platform.isMobile) {
       if (layer) layer.remove();
       list.classList.remove("lg-has-stripes");
       return;
@@ -4747,7 +5222,7 @@ var foldersMethods = {
     });
     const out = { rows, rects, lr, gl };
     if (!wide) return out;
-    const right = Math.max(0, lr.left + list.clientLeft + list.clientWidth - wide.right - (import_obsidian9.Platform.isMobile ? gl : 0));
+    const right = Math.max(0, lr.left + list.clientLeft + list.clientWidth - wide.right - (import_obsidian10.Platform.isMobile ? gl : 0));
     const rr = `${Math.round(right * 10) / 10}px`;
     if (list.style.getPropertyValue("--lg-row-ext-r") !== rr) list.style.setProperty("--lg-row-ext-r", rr);
     return out;
@@ -4758,7 +5233,7 @@ var foldersMethods = {
   },
   // 폴더를 열고 닫으면 Obsidian 애니메이션(약 0.2초) 동안 줄이 움직이므로, 그동안 매 프레임 막대를 줄 위치에 다시 맞춘다
   followStripes(list) {
-    if (!this.settings.fileStripes || import_obsidian9.Platform.isMobile) return;
+    if (!this.settings.fileStripes || import_obsidian10.Platform.isMobile) return;
     const win = list.ownerDocument.defaultView || window;
     list.lgStripeUntil = win.performance.now() + STRIPE_FOLLOW_MS;
     if (list.lgStripeLoop) return;
@@ -4784,7 +5259,7 @@ var foldersMethods = {
 };
 
 // src/sidebar.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 var sidebarMethods = {
   // 좌우 패널 투명(아크릴)에서 패널 위 알약·버튼 밑 구멍 (사용자 요청): 알약 유리는 Obsidian 화면만 떠 와 창 뒤 아크릴을 비추지 못하므로,
   // 패널 바탕은 패널 밖 바로 뒤의 층(.lg-panel-under, 패널 자리·크기를 따라간다)에 칠하고, 그 층을 패널마다 문서 안 SVG 마스크
@@ -5120,7 +5595,7 @@ var sidebarMethods = {
             for (const t of EVENTS) dock.addEventListener(t, onAnim, true);
             for (const t of ["transitionrun", "transitionend", "transitioncancel"]) dock.addEventListener(t, onWidth);
             if (dock.parentElement) dock.parentElement.insertBefore(under, dock);
-            if (import_obsidian10.Platform.isWin) for (const d2 of dots) document.body.appendChild(d2);
+            if (import_obsidian11.Platform.isWin) for (const d2 of dots) document.body.appendChild(d2);
           }
         }
         ro.disconnect();
@@ -5133,7 +5608,7 @@ var sidebarMethods = {
       };
       const refs = [this.app.workspace.on("layout-change", bind)];
       window.addEventListener("resize", schedule);
-      if (import_obsidian10.Platform.isWin) for (const t of DAMAGE_ON) document.addEventListener(t, onActivity, { capture: true, passive: true });
+      if (import_obsidian11.Platform.isWin) for (const t of DAMAGE_ON) document.addEventListener(t, onActivity, { capture: true, passive: true });
       bind();
       return () => {
         ro.disconnect();
@@ -5164,6 +5639,10 @@ var sidebarMethods = {
       if (!row || !row.classList.contains("setting-item")) return;
       row.classList.toggle("lg-dd-row", dd);
       row.classList.toggle("lg-dd-btn", dd && !!c.querySelector(":scope > button:not(.mod-cta)"));
+    });
+    root.querySelectorAll(".bases-toolbar-menu-form .input-row").forEach((r) => {
+      const dd = !!r.querySelector(":scope > .input-row-content > select.dropdown");
+      if (r.classList.contains("lg-dd-row") !== dd) r.classList.toggle("lg-dd-row", dd);
     });
   },
   // 사이드바 보기 중 머리 줄(.nav-header)에 버튼 줄 말고 보이는 것이 없는 보기에 lg-bare-head 를 붙인다.
@@ -5196,7 +5675,7 @@ var sidebarMethods = {
   markTabList(split, side) {
     if (!split || !split.containerEl) return;
     const st = this.settings;
-    split.containerEl.classList.toggle("lg-tab-list", st.tabAnim === "list" && !import_obsidian10.Platform.isPhone && (st.tabListSides === "both" || st.tabListSides === side));
+    split.containerEl.classList.toggle("lg-tab-list", st.tabAnim === "list" && !import_obsidian11.Platform.isPhone && (st.tabListSides === "both" || st.tabListSides === side));
   },
   setupSidebar(split, side) {
     if (!split || !split.containerEl) return;
@@ -5273,8 +5752,8 @@ var sidebarMethods = {
     const parts = els(row.querySelectorAll(":scope > .lg-nav-run, :scope > .lg-nav-rest")).filter((p) => p.childElementCount > 0);
     const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
     const ns = tabsEl.lgSearchIn;
-    const extra = ns ? ns.p.getBoundingClientRect().width - ns.p.offsetHeight : 0;
-    const need = parts.reduce((sum, p) => sum + p.getBoundingClientRect().width, 0) + gap * Math.max(0, parts.length - 1) - extra;
+    const extra = ns ? ns.p.offsetWidth - ns.p.offsetHeight : 0;
+    const need = parts.reduce((sum, p) => sum + p.offsetWidth, 0) + gap * Math.max(0, parts.length - 1) - extra;
     const fold = need > row.getBoundingClientRect().width + 0.5;
     const animate = tabsEl.lgFoldSeen && fold !== was;
     tabsEl.lgFoldSeen = true;
@@ -5428,7 +5907,7 @@ var sidebarMethods = {
         if (svg) p.appendChild(svg.cloneNode(true));
       }
       const label = b.getAttribute("aria-label") || "";
-      if (p.getAttribute("aria-label") !== label) (0, import_obsidian10.setTooltip)(p, label);
+      if (p.getAttribute("aria-label") !== label) (0, import_obsidian11.setTooltip)(p, label);
       p.classList.toggle("is-active", b.classList.contains("is-active"));
       p.classList.toggle("has-active-menu", b.classList.contains("has-active-menu"));
     });
@@ -5504,7 +5983,7 @@ var sidebarMethods = {
       const base = p.offsetHeight;
       const parts = els(row.querySelectorAll(":scope > .lg-nav-run, :scope > .lg-nav-rest")).filter((x) => x.childElementCount > 0);
       const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
-      const need = parts.reduce((sum, x) => sum + x.getBoundingClientRect().width, 0) + gap * Math.max(0, parts.length - 1) - (p.getBoundingClientRect().width - base);
+      const need = parts.reduce((sum, x) => sum + x.offsetWidth, 0) + gap * Math.max(0, parts.length - 1) - (p.offsetWidth - base);
       const free = row.getBoundingClientRect().width - need;
       if (free >= NAV_SEARCH_MIN) w = base + Math.min(NAV_SEARCH_MAX - base, free);
     }
@@ -5687,6 +6166,7 @@ var sidebarMethods = {
       sp = createDiv({ cls: ["lg-side-balance", INJECTED] });
       header.insertBefore(sp, inner);
     }
+    if (!header.querySelector(":scope > .lg-ptab-ring")) header.insertBefore(createDiv({ cls: ["lg-ptab-ring", INJECTED] }), inner);
     const gap = parseFloat(getComputedStyle(header).columnGap) || 0;
     const kids = els(header.children).filter(
       (c) => c !== sp && c !== inner && !c.classList.contains("lg-seg-indicator") && c.getClientRects().length && getComputedStyle(c).position !== "absolute"
@@ -5760,7 +6240,7 @@ var sidebarMethods = {
     this.showNavMenu(buttons, anchor, /* @__PURE__ */ new Map());
   },
   showNavMenu(buttons, anchor, snaps) {
-    const menu = new import_obsidian10.Menu();
+    const menu = new import_obsidian11.Menu();
     if (buttons.length === 0) {
       menu.addItem((item) => item.setTitle(tr("\uC0AC\uC6A9\uD560 \uBA54\uB274\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4", "No menu items available")).setDisabled(true));
     }
@@ -5808,6 +6288,9 @@ var sidebarMethods = {
     this.segWatched.add(opts);
     const lens = new SegmentLens(opts, list, this);
     lens.keepH = true;
+    const bakeRo = new ResizeObserver(() => lens.prebakeAll());
+    bakeRo.observe(list);
+    this.register(() => bakeRo.disconnect());
     const current = () => list.querySelector(":scope > .workspace-tab-header.is-active");
     let last = current();
     const obs = new MutationObserver(() => {
@@ -5826,9 +6309,14 @@ var sidebarMethods = {
     const head = c && c.querySelector(".workspace-drawer-header");
     const content = c && c.querySelector(".workspace-drawer-active-tab-content");
     if (!head || !content || head.querySelector(":scope > .lg-drawer-more")) return;
-    if (import_obsidian10.Platform.isPhone) {
+    if (import_obsidian11.Platform.isPhone) {
       const win = c.ownerDocument.defaultView || window;
-      const put = () => c.style.setProperty("--lg-dhead-h", `${head.offsetHeight}px`);
+      const put = () => {
+        const h = head.offsetHeight;
+        if (!h) return;
+        const v = `${h}px`;
+        if (c.style.getPropertyValue("--lg-dhead-h") !== v) c.style.setProperty("--lg-dhead-h", v);
+      };
       const ro = new win.ResizeObserver(put);
       ro.observe(head);
       put();
@@ -5838,7 +6326,7 @@ var sidebarMethods = {
       });
     }
     const btn = head.createDiv({ cls: ["clickable-icon", "workspace-drawer-header-icon", "mod-raised", "lg-drawer-more", INJECTED] });
-    (0, import_obsidian10.setIcon)(btn, "more-horizontal");
+    (0, import_obsidian11.setIcon)(btn, "more-horizontal");
     btn.setAttribute("aria-label", tr("\uBA54\uB274", "Menu"));
     const buttons = () => {
       const bar = content.querySelector(".nav-buttons-container");
@@ -5857,7 +6345,7 @@ var sidebarMethods = {
       if (btn.ownerDocument.querySelector(".menu:not(.lg-menu-ghost)")) this.tellMenus(btn, "mousedown");
       const list = buttons();
       if (!list.length) return;
-      const menu = new import_obsidian10.Menu();
+      const menu = new import_obsidian11.Menu();
       for (const b of list) {
         const svg = b.querySelector("svg");
         const icon = svg && strs(svg.classList).find((k) => k !== "svg-icon");
@@ -5922,7 +6410,7 @@ var sidebarMethods = {
 };
 
 // src/tabs.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian12 = require("obsidian");
 var tabsMethods = {
   // 탭 그룹 요소에서 지금 선택된 리프를 찾는다
   activeLeafOf(tabsEl) {
@@ -5937,8 +6425,8 @@ var tabsMethods = {
   },
   makeButton(cls, icon, tooltip, onClick) {
     const el = createDiv({ cls: ["clickable-icon", INJECTED, cls] });
-    (0, import_obsidian11.setIcon)(el, icon);
-    if (tooltip) (0, import_obsidian11.setTooltip)(el, tooltip);
+    (0, import_obsidian12.setIcon)(el, icon);
+    if (tooltip) (0, import_obsidian12.setTooltip)(el, tooltip);
     el.addEventListener("mousedown", (e) => {
       e.stopPropagation();
       el.lgWasOpen = el.classList.contains("has-active-menu");
@@ -5976,13 +6464,13 @@ var tabsMethods = {
         const leaf = this.activeLeafOf(tabsEl);
         const v = leaf && leaf.view;
         if (isWebView(v) && typeof v.toggleReaderMode === "function") v.toggleReaderMode();
-        else if (v instanceof import_obsidian11.MarkdownView && typeof v.onSwitchView === "function") v.onSwitchView(e);
+        else if (v instanceof import_obsidian12.MarkdownView && typeof v.onSwitchView === "function") v.onSwitchView(e);
         window.setTimeout(() => this.requestRefresh(), 50);
       });
       const tabList = header.querySelector(":scope > .workspace-tab-header-tab-list");
       header.insertBefore(mode, tabList || null);
     }
-    if (!import_obsidian11.Platform.isPhone) {
+    if (!import_obsidian12.Platform.isPhone) {
       const newTab = header.querySelector(".workspace-tab-header-new-tab");
       const list = header.querySelector(".workspace-tab-header-tab-list");
       let tools = header.querySelector(":scope > .lg-tab-tools");
@@ -6074,7 +6562,7 @@ var tabsMethods = {
   // 리본에 있던 왼쪽 패널 열기 토글은 리본이 숨으면 Obsidian 이 스스로 이 탭 줄 맨 왼쪽으로 옮긴다(패널이 닫혀 있을 때).
   // 데스크톱·태블릿(태블릿은 서랍 안 리본의 실행 버튼 묶음을 숨긴다, styles.css), 편집창의 맨 위 왼쪽 탭 묶음 하나에만 단다
   setupRibbonButtons(tabsEl, header, nav) {
-    if (import_obsidian11.Platform.isPhone) return;
+    if (import_obsidian12.Platform.isPhone) return;
     const root = this.app.workspace.rootSplit;
     const first = !!root && root.containerEl.querySelector(".workspace-tabs") === tabsEl;
     let rib = header.querySelector(":scope > .lg-rib-menu");
@@ -6098,7 +6586,7 @@ var tabsMethods = {
       (b) => !hidden.has(b) && !b.hidden && win.getComputedStyle(b).display !== "none"
     );
     const extra = els(doc.querySelectorAll(".workspace-drawer-ribbon .side-dock-settings [aria-label]"));
-    const menu = new import_obsidian11.Menu();
+    const menu = new import_obsidian12.Menu();
     if (buttons.length === 0 && extra.length === 0) menu.addItem((item) => item.setTitle(tr("\uB9AC\uBCF8\uC5D0 \uBC84\uD2BC\uC774 \uC5C6\uC2B5\uB2C8\uB2E4", "No ribbon buttons")).setDisabled(true));
     let sep = buttons.length > 0;
     for (const b of buttons.concat(extra)) {
@@ -6199,7 +6687,7 @@ var tabsMethods = {
     const cs = getComputedStyle(header);
     const path = header.querySelector(":scope > .lg-path");
     const stacked = tabsEl.classList.contains("mod-stacked");
-    const anchor = !import_obsidian11.Platform.isPhone && path && (stacked || this.settings.showPath) ? path : inner;
+    const anchor = !import_obsidian12.Platform.isPhone && path && (stacked || this.settings.showPath) ? path : inner;
     const styles = /* @__PURE__ */ new Map();
     const styleOf = (c) => {
       let v = styles.get(c);
@@ -6381,13 +6869,13 @@ var tabsMethods = {
   },
   // 경로 알약이 첫 줄에 보이는지 (경로 표시를 켰거나 탭 쌓기 모드, 휴대폰 제외)
   pathShown(tabsEl) {
-    return !import_obsidian11.Platform.isPhone && (tabsEl.classList.contains("mod-stacked") || !!this.settings.showPath);
+    return !import_obsidian12.Platform.isPhone && (tabsEl.classList.contains("mod-stacked") || !!this.settings.showPath);
   },
   // 원래 버튼의 상태를 새 버튼에 옮긴다
   syncTabBar(tabsEl, nav, mode) {
     const leaf = this.activeLeafOf(tabsEl);
     const view = leaf && leaf.view;
-    const isWeb = isWebView(view) && !import_obsidian11.Platform.isPhone;
+    const isWeb = isWebView(view) && !import_obsidian12.Platform.isPhone;
     if (isWeb && view.headerEl && view.headerEl.classList.contains("view-header-always-show")) {
       view.headerEl.classList.remove("view-header-always-show");
       view.headerEl.classList.add("lg-web-head");
@@ -6408,7 +6896,7 @@ var tabsMethods = {
     this.webTab(tabsEl, leaf, false);
     this.updatePath(tabsEl, view);
     this.webTab(tabsEl, leaf, true);
-    if (isWeb && !import_obsidian11.Platform.isPhone) this.webMouseWire(view);
+    if (isWeb && !import_obsidian12.Platform.isPhone) this.webMouseWire(view);
     const slab = tabsEl.querySelector(":scope > .workspace-tab-header-container > .lg-slab");
     const switched = !!slab && tabsEl.lgSlabView !== view;
     tabsEl.lgSlabView = view;
@@ -6429,7 +6917,7 @@ var tabsMethods = {
       void slab.offsetWidth;
       slab.classList.remove("lg-no-tr");
     }
-    const isMd = view instanceof import_obsidian11.MarkdownView;
+    const isMd = view instanceof import_obsidian12.MarkdownView;
     mode.classList.remove(HIDDEN);
     mode.classList.toggle("lg-mode-off", !isMd && !isWeb);
     this.balanceTabs(tabsEl);
@@ -6448,17 +6936,17 @@ var tabsMethods = {
       const icon = isWeb ? "glasses" : reading ? "edit-3" : "book-open";
       const key = `${icon}:${reading}`;
       if (mode.dataset.icon !== key) {
-        (0, import_obsidian11.setIcon)(mode, icon);
+        (0, import_obsidian12.setIcon)(mode, icon);
         mode.dataset.icon = key;
-        if (isWeb) (0, import_obsidian11.setTooltip)(mode, reading ? tr("\uC6F9 \uD398\uC774\uC9C0\uB85C \uBCF4\uAE30", "Show web page") : tr("\uC77D\uAE30 \uBAA8\uB4DC", "Reader view"));
-        else (0, import_obsidian11.setTooltip)(mode, reading ? tr("\uD3B8\uC9D1 \uBAA8\uB4DC\uB85C \uC804\uD658", "Switch to editing view") : tr("\uC77D\uAE30 \uBAA8\uB4DC\uB85C \uC804\uD658", "Switch to reading view"));
+        if (isWeb) (0, import_obsidian12.setTooltip)(mode, reading ? tr("\uC6F9 \uD398\uC774\uC9C0\uB85C \uBCF4\uAE30", "Show web page") : tr("\uC77D\uAE30 \uBAA8\uB4DC", "Reader view"));
+        else (0, import_obsidian12.setTooltip)(mode, reading ? tr("\uD3B8\uC9D1 \uBAA8\uB4DC\uB85C \uC804\uD658", "Switch to editing view") : tr("\uC77D\uAE30 \uBAA8\uB4DC\uB85C \uC804\uD658", "Switch to reading view"));
       }
     }
   }
 };
 
 // src/web.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 var webMethods = {
   // 웹 뷰어 탭 줄 축소 (사용자 요청): 보이는 웹 탭의 페이지 스크롤 위치를 물어 편집창과 같은 판단(miniFeed)에 넣는다.
   // 같은 질문으로 마우스 옆 버튼 요청(WEB_MOUSE_SCRIPT)도 받는다.
@@ -6603,7 +7091,7 @@ var webMethods = {
     const title = inner.querySelector(":scope > .workspace-tab-header-inner-title");
     const menu = inner.querySelector(":scope > .lg-tab-menu");
     const hostEl = createDiv({ cls: ["lg-web-host", INJECTED], text: webHost(view) });
-    (0, import_obsidian12.setTooltip)(hostEl, tr("\uC8FC\uC18C \uACE0\uCE58\uAE30", "Edit address"));
+    (0, import_obsidian13.setTooltip)(hostEl, tr("\uC8FC\uC18C \uACE0\uCE58\uAE30", "Edit address"));
     for (const type of ["mousedown", "pointerdown"]) hostEl.addEventListener(type, (e) => e.stopPropagation());
     hostEl.addEventListener("click", (e) => {
       e.preventDefault();
@@ -6970,7 +7458,7 @@ var webMethods = {
 };
 
 // src/main.ts
-var Base = import_obsidian13.Plugin;
+var Base = import_obsidian14.Plugin;
 var GlassShelfCompanion = class extends Base {
   // 테마가 켜져 있는 동안의 모든 동작은 자식 Component(this.core) 하나에 묶는다. 테마가 바뀌면(켜짐·꺼짐) 그 자식만 떼고 붙인다.
   // 예전엔 플러그인이 스스로 껐다 켰는데(app.plugins 비공개 API), 그 방식은 심사 지적 대상이고 끌 때마다 옛 인스턴스가 남기는 것이 생겼다 (검토 지적).

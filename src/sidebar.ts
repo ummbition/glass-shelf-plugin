@@ -431,6 +431,11 @@ export const sidebarMethods = {
       row.classList.toggle("lg-dd-row", dd);
       row.classList.toggle("lg-dd-btn", dd && !!c.querySelector<HTMLElement>(":scope > button:not(.mod-cta)"));
     });
+    // Bases 뷰 설정의 드롭다운 줄(행 높이 등): 이름과 드롭다운을 한 줄에 둔다 (테마)
+    root.querySelectorAll<HTMLElement>(".bases-toolbar-menu-form .input-row").forEach((r) => {
+      const dd = !!r.querySelector<HTMLElement>(":scope > .input-row-content > select.dropdown");
+      if (r.classList.contains("lg-dd-row") !== dd) r.classList.toggle("lg-dd-row", dd);
+    });
   },
 
   // 사이드바 보기 중 머리 줄(.nav-header)에 버튼 줄 말고 보이는 것이 없는 보기에 lg-bare-head 를 붙인다.
@@ -548,8 +553,9 @@ export const sidebarMethods = {
     const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
     // 넓어진 검색 버튼(navSearchSync)은 원래 크기로 친다
     const ns = tabsEl.lgSearchIn;
-    const extra = ns ? ns.p.getBoundingClientRect().width - ns.p.offsetHeight : 0;
-    const need = parts.reduce((sum, p) => sum + p.getBoundingClientRect().width, 0) + gap * Math.max(0, parts.length - 1) - extra;
+    // 폭은 배치 폭으로 잰다 (나타나는 중인 버튼 묶음의 scale 에 흔들리지 않게, navSearchSync 와 같다)
+    const extra = ns ? ns.p.offsetWidth - ns.p.offsetHeight : 0;
+    const need = parts.reduce((sum, p) => sum + p.offsetWidth, 0) + gap * Math.max(0, parts.length - 1) - extra;
     const fold = need > row.getBoundingClientRect().width + 0.5;
     // 바뀔 때 모션 (사용자 요청): 사라지는 쪽은 그 자리에 복제본을 띄워 줄어들며 흐려지게, 나타나는 쪽은 가운데서 퍼져 나오게.
     // 처음 판단할 때(앱을 켤 때·보기를 처음 그릴 때)는 바로 둔다
@@ -806,9 +812,10 @@ export const sidebarMethods = {
       const base = p.offsetHeight;
       const parts = els(row.querySelectorAll<HTMLElement>(":scope > .lg-nav-run, :scope > .lg-nav-rest")).filter((x) => x.childElementCount > 0);
       const gap = parseFloat(getComputedStyle(row).columnGap) || 0;
-      // 넓어지는 중일 수 있어 검색 버튼은 원래 크기로 친다
-      const need =
-        parts.reduce((sum, x) => sum + x.getBoundingClientRect().width, 0) + gap * Math.max(0, parts.length - 1) - (p.getBoundingClientRect().width - base);
+      // 넓어지는 중일 수 있어 검색 버튼은 원래 크기로 친다.
+      // 폭은 배치 폭(offsetWidth)으로 잰다: 다른 탭에서 돌아오면 버튼 묶음이 커지며 나타나는(navBtnEnter, scale) 중이라
+      // 화면 폭(getBoundingClientRect)으로 재면 잴 때마다 검색 칸 폭이 달라져 덜 펼쳐지거나 오른쪽 버튼을 밀었다 (사용자 지적)
+      const need = parts.reduce((sum, x) => sum + x.offsetWidth, 0) + gap * Math.max(0, parts.length - 1) - (p.offsetWidth - base);
       const free = row.getBoundingClientRect().width - need;
       if (free >= NAV_SEARCH_MIN) w = base + Math.min(NAV_SEARCH_MAX - base, free);
     }
@@ -1008,6 +1015,9 @@ export const sidebarMethods = {
       sp = createDiv({ cls: ["lg-side-balance", INJECTED] });
       header.insertBefore(sp, inner);
     }
+    // 패널 탭 알약의 링 그림자 층 (테마 .lg-ptab-ring). 알약은 가로로 스크롤되어 제 ::before 에 그리면 같이 밀리고 잘린다:
+    // 알약 바로 앞 형제로 두고 테마가 앵커 위치로 알약에 겹친다 (앞에 있어야 알약 유리 아래에 그려진다)
+    if (!header.querySelector(":scope > .lg-ptab-ring")) header.insertBefore(createDiv({ cls: ["lg-ptab-ring", INJECTED] }), inner);
     const gap = parseFloat(getComputedStyle(header).columnGap) || 0;
     const kids = els(header.children).filter(
       (c) => c !== sp && c !== inner && !c.classList.contains("lg-seg-indicator") && c.getClientRects().length && getComputedStyle(c).position !== "absolute"
@@ -1146,6 +1156,12 @@ export const sidebarMethods = {
     const lens = new SegmentLens(opts, list, this);
     // 모바일 서랍 보기 전환은 렌즈가 위아래로 커지지 않는다 (사용자 요청)
     lens.keepH = true;
+    // 렌즈 크기별 굴절 지도를 쉬는 틈에 미리 굽는다: 굽지 않으면 첫 전환 동안 매 프레임 그 자리에서 구워 첫 전환만 느렸다
+    // (사용자 지적: 처음만 느리고 그다음부터 빠르다). 패널 탭 렌즈와 같다 (watchTabs).
+    // 닫힌 서랍은 숨겨져(display: none) 탭 크기가 0 이라 못 재므로, 목록 크기가 생기거나 바뀔 때마다 부른다 (같은 크기는 한 번만 굽는다)
+    const bakeRo = new ResizeObserver(() => lens.prebakeAll());
+    bakeRo.observe(list);
+    this.register(() => bakeRo.disconnect());
     const current = () => list.querySelector<HTMLElement>(":scope > .workspace-tab-header.is-active");
     let last = current();
     const obs = new MutationObserver(() => {
@@ -1169,7 +1185,14 @@ export const sidebarMethods = {
     // 테마가 목록 끝 여백을 그만큼 늘려 마지막 항목이 줄에 가리지 않게 한다 (값이 없으면 테마가 어림값을 쓴다)
     if (Platform.isPhone) {
       const win = c.ownerDocument.defaultView || window;
-      const put = () => c.style.setProperty("--lg-dhead-h", `${head.offsetHeight}px`);
+      // 닫힌 서랍은 숨겨져(display: none) 높이가 0 이라 그때는 쓰지 않는다: 닫을 때 0, 열 때 87px 로 오가며 서랍 아래 요소
+      // 약 500개의 스타일을 열 때마다 한 번 더 계산했다 (검토 측정: 첫 화면까지 약 25ms). 같은 값도 다시 쓰지 않는다
+      const put = () => {
+        const h = head.offsetHeight;
+        if (!h) return;
+        const v = `${h}px`;
+        if (c.style.getPropertyValue("--lg-dhead-h") !== v) c.style.setProperty("--lg-dhead-h", v);
+      };
       const ro = new win.ResizeObserver(put);
       ro.observe(head);
       put();

@@ -11,6 +11,10 @@ export const REFRACT_TARGETS: [string, number][] = [
   [".mod-left-split .workspace-tab-header-container-inner, .mod-right-split .workspace-tab-header-container-inner", 26],
   [".mod-root .workspace-tab-header-container .workspace-tab-header.is-active", 23],
   [".titlebar-button-container.mod-right", 26],
+  // Bases 툴바 버튼: 알약은 다른 알약, 기호만 있는 원은 다른 원 버튼과 같은 세기 (사용자 지적: 알약과 값이 달랐다)
+  [".bases-toolbar .bases-toolbar-item:not(.bases-toolbar-search, .bases-toolbar-new-item-menu) > .text-icon-button", 26],
+  // Bases 칸반 목록 아래 추가 버튼도 툴바 원형 버튼과 같다 (사용자 요청)
+  [".bases-toolbar :is(.bases-toolbar-search, .bases-toolbar-new-item-menu) > .text-icon-button, .bases-kanban-column-footer > .text-icon-button", 32],
 ];
 
 // 모바일(휴대폰·태블릿 앱)에서 굴절을 거는 유리 요소들. Obsidian 이 떠 있는 요소에 붙이는 .mod-raised 자리
@@ -93,8 +97,14 @@ export const LENS_TOGGLE: LensShape = { minify: 1.2, flat: 0.9, edge: 0.1, reach
 export const LENS_SLIDER: LensShape = { minify: 1, flat: 0.9, edge: 0.2, reach: 0.55, shape: 1 };
 // 굴절 변위 지도 캐시 개수 (Refractor.filterFor)
 export const MAP_CACHE = 200;
+// 모바일 미리 굽기로 기억해 둘 지도 수 (Refractor.warmUp)
+export const WARM_MAX = 40;
 // 탭 렌즈 굴절은 탭 렌즈 끝 조율기에서 사용자가 고른 값 (26.10.13)
+// 탭 렌즈 안에서 탭 줄 알약 밖(패널 바탕)에서 끌려온 픽셀을 어둡게 하는 정도 (0 = 그대로, 사용자 요청)
+export const LENS_SHADE = 0.04; // 0.2 에서 사용자 요청으로 옅게
 export const LENS_TAB: LensShape = { minify: 1.2, flat: 0.94, edge: 2, reach: 1.1, shape: 1, line: true, box: true };
+// 데스크톱(모바일 서랍이 아닌 패널) 탭 렌즈: 안쪽을 1.3 배 작게 (사용자 요청). 나머지는 LENS_TAB 과 같다
+export const LENS_TAB_PC: LensShape = { ...LENS_TAB, minify: 1.3 };
 // 탭 렌즈 안 글자 전용 굴절 (조율기 값, 26.10.13). 렌즈 유리는 탭 줄 알약만 굴절하고, 렌즈 안 글자는 복사본에 이 굴절을 따로 건다
 export const LENS_TAB_TEXT: LensShape = { minify: 1, flat: 0.6, edge: 0.2, reach: 0.9, shape: 1 };
 
@@ -102,6 +112,9 @@ export const LENS_TAB_TEXT: LensShape = { minify: 1, flat: 0.6, edge: 0.2, reach
 // Chromium 은 옛 rgb() 와 color(srgb …) 사이를 보간할 때 0~255 값을 색 성분에 섞어 노랑·빨강(또는 검정)으로 튄다 (측정 확인).
 // 같은 표기(color(srgb …))끼리는 바르게 보간된다
 export const PRESS_WHITE = "color(srgb 1 1 1)";
+// 누를 때 하얘지는 동안의 배경 그림: 광택·틴트 층(두 번째 층)만 빼고 테두리 칸의 외곽선·양옆 선(--lg-cres-img)은 그대로 둔다
+// (사용자 요청: 하얘질 때 외곽선까지 하얘질 필요 없다. 예전엔 none 이라 테두리 칸까지 흰 채움에 덮였다)
+export const PRESS_IMG = "var(--lg-cres-img), none";
 
 // =========================================================
 // 굴절: kube.io 방식.
@@ -117,9 +130,21 @@ export class Refractor {
   declare stores: Map<Document, FilterStore>;
   declare rxr: number | undefined;
   declare tracked: Set<HTMLElement>;
+  // 잠시 멈춤: 걸어 둔 필터를 떼어 두고(설정은 그대로) 풀 때 다시 건다 (휴대폰 메뉴 시트가 열린 동안)
+  declare paused: boolean;
+  declare held: Map<HTMLElement, string> | null;
+  // 미리 굽기 (모바일): 최근에 구운 가장자리 굴절 지도의 크기·값을 이 기기 저장소에 적어 두고, 다음에 켤 때 쉬는 틈에 미리 굽는다
+  declare warm: string[];
+  declare warmIO: { load(): unknown; save(v: string[]): void } | null;
+  declare warmTimer: number;
 
   constructor() {
     this.enabled = false;
+    this.paused = false;
+    this.held = null;
+    this.warm = [];
+    this.warmIO = null;
+    this.warmTimer = 0;
     // 창(document)마다 SVG 필터 모음이 따로 있어야 url(#id)가 그 창에서 보인다
     this.stores = new Map();
     this.maps = new Map();
@@ -145,6 +170,76 @@ export class Refractor {
       });
       this.tracked.clear();
     }
+  }
+
+  // 휴대폰 메뉴 시트·서랍이 보이는 동안 굴절을 멈춘다: 시트·서랍이 움직이는 동안 그 위아래 유리의 굴절 필터(SVG 변위)가
+  // 매 프레임 다시 계산돼 끊겼다 (사용자 지적, 휴대폰 녹화 측정: 움직이는 동안 프레임 간격 평균 약 32ms → 굴절을 끄면 약 21ms,
+  // 같은 크기의 빈 시트를 올릴 때와 같다). 시트와 어둡게 덮는 층 아래라 굴절이 빠져도 거의 보이지 않는다.
+  // 뗀 값은 그대로 들고 있다가 되붙인다: 되붙일 때 다시 재면(update) 요소마다 폭을 읽고 쓰기를 번갈아 해 레이아웃을 여러 번 다시 했다.
+  // 값이 없는 요소는 건드리지 않는다(걸 때마다 그 아래 요소 전체의 스타일을 다시 계산한다)
+  setPaused(on: boolean) {
+    if (this.paused === on) return;
+    this.paused = on;
+    if (on) {
+      this.held = new Map();
+      this.tracked.forEach((el: HTMLElement) => {
+        const v = el.style.getPropertyValue("--lg-refract");
+        if (!v) return;
+        this.held.set(el, v);
+        el.style.removeProperty("--lg-refract");
+      });
+    } else {
+      const held = this.held || new Map<HTMLElement, string>();
+      this.held = null;
+      this.tracked.forEach((el: HTMLElement) => {
+        if (!el.isConnected || !el.lgRefract) return;
+        const v = held.get(el);
+        // 멈춘 동안 새로 붙었거나 크기가 바뀐 요소는 다시 잰다
+        const stale = el.lgRfStale;
+        el.lgRfStale = false;
+        if (v && !stale && el.ownerDocument.getElementById(v.slice(5, -1))) el.style.setProperty("--lg-refract", v);
+        else this.update(el);
+      });
+    }
+  }
+
+  // 휴대폰에서 서랍을 처음 열 때 서랍 안 유리의 지도를 그 자리에서 굽느라 끊겼다 (사용자 지적, 휴대폰을 새로 켠 뒤 측정: 첫 열기에 지도 굽기 약 45ms).
+  // 그 지도들의 크기·값을 기억해 두었다가(최근 WARM_MAX 개) 다음에 켤 때 화면이 준비된 뒤 쉬는 틈에 굽는다. 쓰는 곳은 그대로 filterFor 가 캐시에서 찾는다
+  noteWarm(sig: string) {
+    if (!this.warmIO) return;
+    const i = this.warm.indexOf(sig);
+    if (i >= 0) this.warm.splice(i, 1);
+    this.warm.push(sig);
+    if (this.warm.length > WARM_MAX) this.warm.shift();
+    window.clearTimeout(this.warmTimer);
+    this.warmTimer = window.setTimeout(() => this.warmIO && this.warmIO.save(this.warm), 2000);
+  }
+
+  warmUp() {
+    if (!this.warmIO || !this.enabled) return;
+    const v = this.warmIO.load();
+    const list = Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+    this.warm = list.slice(-WARM_MAX);
+    const todo = [...this.warm];
+    const idle = (fn: (dl?: IdleDeadline) => void) => (window.requestIdleCallback ? window.requestIdleCallback(fn, { timeout: 3000 }) : window.setTimeout(fn, 50));
+    const next = () =>
+      idle((dl?: IdleDeadline) => {
+        while (todo.length && (!dl || dl.timeRemaining() > 8)) {
+          const [w, h, bezel, spread, bezelMax] = todo.shift().split("|").map(Number);
+          if (!(w >= 4 && h >= 4)) continue;
+          const mapKey = `${w}x${h}-b${Math.round(bezel * 100)}-s${Math.round(spread * 100)}-m${Math.round(bezelMax * 10)}`;
+          if (this.maps.has(mapKey)) continue;
+          try {
+            this.maps.set(mapKey, { url: this.bakeMap(w, h, false, bezel, spread, bezelMax) });
+          } catch (err) {
+            console.error("[glass-shelf] warm", err);
+            return;
+          }
+          if (this.maps.size > MAP_CACHE) this.maps.delete(this.maps.keys().next().value as string);
+        }
+        if (todo.length && this.enabled) next();
+      });
+    next();
   }
 
   // 문서에서 떨어진 요소는 감시를 끊고 목록에서 뺀다 (닫힌 탭 헤더 등)
@@ -199,6 +294,11 @@ export class Refractor {
   }
 
   update(el: HTMLElement) {
+    // 멈춘 동안은 다시 재지 않고 표시만 해 둔다 (풀 때 다시 잰다)
+    if (this.paused) {
+      el.lgRfStale = true;
+      return;
+    }
     if (!el.isConnected) {
       this.tracked.delete(el);
       this.resizeObs.unobserve(el);
@@ -216,25 +316,31 @@ export class Refractor {
   // bezel: 굴절이 일어나는 가장자리 폭 (반지름 대비 비율)
   // 지도가 없는 곳은 무변위(회색 128) 바탕으로 채워, 필터 결과에 투명한 곳이 생기지 않게 한다 (안전장치)
   // bezel 을 주지 않으면 기본 비율 (데스크톱 0.6, 모바일은 버튼이 커서 가장자리를 더 넓게 0.75)
-  filterFor(w: number, h: number, strength: number, chroma: boolean, outward: boolean, doc = document, bezel = BEZEL_RATIO, spread = REFRACT_SPREAD, lens = LENS_DEFAULT, bezelMax = BEZEL_MAX) {
+  // shadeTag: 탭 렌즈만. 주면 렌즈 안에서 탭 줄 알약 밖(패널 바탕)에서 끌려온 픽셀만 LENS_SHADE 만큼 어둡게 하는 필터를 렌즈마다 따로 만든다.
+  // 알약 모양 그림(feImage, 자리는 shadeAt 이 매 프레임 옮긴다)을 렌즈와 같은 지도로 휘게 해, 굴절된 픽셀이 어디서 왔는지 안다
+  filterFor(w: number, h: number, strength: number, chroma: boolean, outward: boolean, doc = document, bezel = BEZEL_RATIO, spread = REFRACT_SPREAD, lens = LENS_DEFAULT, bezelMax = BEZEL_MAX, shadeTag = "") {
     // 렌즈(outward)는 가장자리 굴절 대신 축소 렌즈 지도(bakeLensMap)를 쓴다. 세기는 지도가 정한다.
     // lens 는 렌즈 굴절 값 묶음. 기본값이 아니면 id 에 값을 붙여 따로 굽는다
     const bz = Math.round(bezel * 100);
     const sp = Math.round(spread * 100);
     const lensTag = lens === LENS_DEFAULT ? "lens" : `lens-${[lens.minify, lens.flat, lens.edge, lens.reach, lens.shape || 2].join("-").replace(/\./g, "p")}${lens.line ? "-ln" : ""}${lens.box ? "-bx" : ""}`;
     const bm = Math.round(bezelMax * 10);
+    const shade = outward && !chroma && shadeTag ? shadeTag : "";
     const mapKey = outward ? `${w}x${h}-${lensTag}` : `${w}x${h}-b${bz}-s${sp}-m${bm}`;
     // 변위 맵 캐시는 최근에 쓴 MAP_CACHE 개만 남긴다. 쓸 때마다 맨 뒤로 옮겨, 오래 안 쓴 것부터 버린다
     // (예전엔 들어온 순서대로 버려 자주 쓰는 지도부터 밀려났고, 애니메이션 중에 다시 굽느라 끊겼다, 검토 지적.
     // 탭 렌즈 하나가 미리 굽는 크기만 60개 남짓이라 개수도 늘렸다)
     let baked = this.maps.get(mapKey);
     if (baked) this.maps.delete(mapKey);
-    else baked = outward ? this.bakeLensMap(w, h, lens) : { url: this.bakeMap(w, h, false, bezel, spread, bezelMax) };
+    else {
+      baked = outward ? this.bakeLensMap(w, h, lens) : { url: this.bakeMap(w, h, false, bezel, spread, bezelMax) };
+      if (!outward) this.noteWarm(`${w}|${h}|${bezel}|${spread}|${bezelMax}`);
+    }
     this.maps.set(mapKey, baked);
     if (this.maps.size > MAP_CACHE) this.maps.delete(this.maps.keys().next().value as string);
     const map = baked.url;
     if (outward) strength = baked.scale;
-    const key = outward ? `lg-rf-${w}x${h}-${lensTag}` : `lg-rf-${w}x${h}-${String(strength).replace(/\./g, "p")}${chroma ? "c" : ""}-b${bz}-s${sp}-m${bm}`;
+    const key = outward ? `lg-rf-${w}x${h}-${lensTag}${shade ? `-sh${shade}` : ""}` : `lg-rf-${w}x${h}-${String(strength).replace(/\./g, "p")}${chroma ? "c" : ""}-b${bz}-s${sp}-m${bm}`;
     const st = this.store(doc);
     if (st.filters.has(key)) return key;
     const f = doc.createElementNS(SVG_NS, "filter");
@@ -309,6 +415,49 @@ export class Refractor {
       keep("db", 2, "b");
       blend("r", "g", "rg");
       blend("rg", "b");
+    } else if (shade) {
+      disp(strength, "out");
+      // 알약 모양 그림 (렌즈 좌표, 자리·크기·그림은 렌즈가 매 프레임 shadeAt 으로 넣는다)
+      const ci = doc.createElementNS(SVG_NS, "feImage");
+      ci.setAttribute("x", "0");
+      ci.setAttribute("y", "0");
+      ci.setAttribute("width", String(w));
+      ci.setAttribute("height", String(h));
+      ci.setAttribute("preserveAspectRatio", "none");
+      ci.setAttribute("result", "cimg");
+      ci.setAttribute("data-lg-shade", "1");
+      f.appendChild(ci);
+      // 렌즈와 같은 지도로 휜다: 굴절된 픽셀이 알약 안에서 왔으면 불투명, 밖에서 왔으면 투명
+      const cd = doc.createElementNS(SVG_NS, "feDisplacementMap");
+      cd.setAttribute("in", "cimg");
+      cd.setAttribute("in2", "map");
+      cd.setAttribute("scale", String(strength));
+      cd.setAttribute("xChannelSelector", "R");
+      cd.setAttribute("yChannelSelector", "G");
+      cd.setAttribute("result", "cmask0");
+      f.appendChild(cd);
+      // 변위는 가장 가까운 픽셀을 읽어 경계가 계단처럼 보였다 (사용자 지적). 휜 뒤 살짝 흐려 경계를 부드럽게 한다 (렌즈 크기만 한 작은 영역이라 가볍다)
+      const cb = doc.createElementNS(SVG_NS, "feGaussianBlur");
+      cb.setAttribute("in", "cmask0");
+      cb.setAttribute("stdDeviation", "0.7");
+      cb.setAttribute("result", "cmask");
+      f.appendChild(cb);
+      // 불투명도를 회색으로 펴서(안 1, 밖 0), 굴절된 결과에 곱한다: 결과 = out × (1 − d + d × 안)
+      const m = doc.createElementNS(SVG_NS, "feColorMatrix");
+      m.setAttribute("in", "cmask");
+      m.setAttribute("type", "matrix");
+      m.setAttribute("values", "0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 0 1");
+      m.setAttribute("result", "shade");
+      f.appendChild(m);
+      const c = doc.createElementNS(SVG_NS, "feComposite");
+      c.setAttribute("in", "out");
+      c.setAttribute("in2", "shade");
+      c.setAttribute("operator", "arithmetic");
+      c.setAttribute("k1", String(LENS_SHADE));
+      c.setAttribute("k2", String(1 - LENS_SHADE));
+      c.setAttribute("k3", "0");
+      c.setAttribute("k4", "0");
+      f.appendChild(c);
     } else {
       disp(strength, "out");
     }
@@ -317,6 +466,24 @@ export class Refractor {
     st.filters.set(key, f);
     if (st.filters.size > 80) this.pruneFilters(doc, st, key);
     return key;
+  }
+
+  // 렌즈 그늘 필터의 알약 모양 그림을 지금 자리로 (렌즈 좌표). 같은 값이면 쓰지 않는다 (쓰면 필터를 다시 계산한다)
+  shadeAt(doc: Document, id: string, x: number, y: number, w: number, h: number, rx: number) {
+    const f = this.store(doc).filters.get(id);
+    const ci = f && f.querySelector('[data-lg-shade="1"]');
+    if (!ci) return;
+    const W = Math.max(1, Math.round(w)), H = Math.max(1, Math.round(h));
+    const R = Math.min(W / 2, Math.round(rx)), Ry = H / 2;
+    const href = `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}"><rect width="${W}" height="${H}" rx="${R}" ry="${Ry}" fill="#fff"/></svg>`)}`;
+    const set = (k: string, v: string) => {
+      if (ci.getAttribute(k) !== v) ci.setAttribute(k, v);
+    };
+    set("href", href);
+    set("x", x.toFixed(1));
+    set("y", y.toFixed(1));
+    set("width", String(W));
+    set("height", String(H));
   }
 
   // 필터가 많이 쌓이면 지금 어떤 요소도 쓰지 않는 것을 지운다

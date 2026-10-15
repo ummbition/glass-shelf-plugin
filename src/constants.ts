@@ -1,8 +1,12 @@
 // 호버 유리가 뜨는 요소들 (테마의 '호버 유리' 목록과 같아야 한다)
 // 편집창 탭(제목·X·≡)은 플랫한 하이라이트라 빠진다
+// 호버 유리를 요소(.lg-hover-glass)로 받는 아이콘 버튼 (나머지 호버 유리는 ::before)
+export const HOVER_ICON = ".clickable-icon:not(.lg-tab-menu):not(.workspace-tab-header-inner-close-button), .bases-toolbar .bases-toolbar-item > .text-icon-button, .bases-kanban-column-footer > .text-icon-button";
 export const HOVER_GLASS = [
   ".clickable-icon:not(.lg-tab-menu):not(.workspace-tab-header-inner-close-button)",
   ".workspace-drawer-vault-switcher",
+  ".bases-toolbar .bases-toolbar-item > .text-icon-button",
+  ".bases-kanban-column-footer > .text-icon-button",
   ".mod-left-split .workspace-tab-header",
   ".mod-right-split .workspace-tab-header",
   ".titlebar-button-container.mod-right .titlebar-button",
@@ -22,13 +26,22 @@ export const PRESS_POP = [
   ".lg-rib-menu",
   ".workspace-drawer-vault-actions .clickable-icon",
   ".graph-controls.is-close .graph-controls-button",
+  // Bases 칸반 목록 아래 추가 버튼 (사용자 요청, 유리가 ::after 라 같은 효과가 그대로 걸린다)
+  ".bases-kanban-column-footer > .text-icon-button",
 ].join(", ");
 
 // 버튼 → 메뉴(창): 버튼은 메뉴 가운데를 향해 MORPH_DASH 만큼 돌진하며 사라지고, 메뉴는 그 지점에서 넓어져 나온다.
 // 닫힐 때는 거기서 나타나 반대쪽으로 MORPH_OVERSHOOT 만큼 지나쳤다가 제자리로 온다. 크기와 상관없이 같은 거리(px)
 export const MORPH_DASH = 30;
+// Bases 툴바에서 메뉴를 여는 버튼들: 보관함 버튼처럼 메뉴 쪽으로 돌진하고 메뉴는 버튼에서 넓어진다 (사용자 요청).
+// 메뉴 자리는 Obsidian 이 정한 대로(버튼 왼쪽 끝, 버튼 아래)
+export const BASES_MENU_BTN = ":is(.bases-toolbar-views-menu, .bases-toolbar-result-count, .bases-toolbar-sort-menu, .bases-toolbar-group-menu, .bases-toolbar-filter-menu, .bases-toolbar-properties-menu) > .text-icon-button";
 // 모바일 누름 효과: 시작을 늦추는 시간(ms)과 스크롤로 보는 손가락 이동 거리(px)
 export const PRESS_DELAY_MS = 90;
+// 꾹 눌렀다 뗄 때 가장 커진 모습에서 원래대로 돌아오는 시간(ms)
+export const HOLD_RETURN_MS = 260;
+// 꾹 누를 때 가장 큰 자리 앞 이만큼의 진행도 구간에서 재생 속도를 차츰 늦춰 부드럽게 멈춘다
+export const HOLD_EASE_SPAN = 0.14;
 export const PRESS_SLOP = 10;
 export const MORPH_OVERSHOOT = 5;
 // 창이 펼쳐질 때 펼쳐지는 방향으로 살짝 밀렸다 돌아오는 거리(px)

@@ -1,6 +1,6 @@
 import { Platform } from "obsidian";
 import { INJECTED, els, isEl, tgPad } from "./util";
-import { HOVER_GLASS, PRESS_POP, PRESS_DELAY_MS, PRESS_SLOP, EASE, DRAG_SCROLL_ZONE, DRAG_SCROLL_MAX, TASK_PRESS_MS, PANEL_TOGGLES, MENU_RIPPLE_FROM, TAB_RIPPLE_K, PRESS_RIPPLE, PRESS_PILL, PRESS_SCALE } from "./constants";
+import { HOVER_GLASS, PRESS_POP, PRESS_DELAY_MS, HOLD_RETURN_MS, HOLD_EASE_SPAN, RIPPLE_HOLD, PRESS_SLOP, EASE, DRAG_SCROLL_ZONE, DRAG_SCROLL_MAX, TASK_PRESS_MS, PANEL_TOGGLES, MENU_RIPPLE_FROM, TAB_RIPPLE_K, PRESS_RIPPLE, PRESS_PILL, PRESS_SCALE } from "./constants";
 import { LENS_TOGGLE } from "./refract";
 import type { GlassShelfPlugin } from "./host";
 import type { PressInfo } from "./internal";
@@ -113,9 +113,10 @@ export const eventsMethods = {
     if (!Platform.isMobile) this.attachDragScroll(doc, win);
     this.applyBodyState(doc);
 
-    // 설정 창 등 창(.modal-container)의 드롭다운 줄 표시 (markDropdownRows). body 의 직속 자식만 보고, 창이 붙으면 그 창 안을 지켜본다
+    // 설정 창 등 창(.modal-container)과 Bases 툴바 메뉴(뷰 설정 등)의 드롭다운 줄 표시 (markDropdownRows).
+    // body 의 직속 자식만 보고, 창·메뉴가 붙으면 그 안을 지켜본다
     const watchModal = (m: HTMLElement) => {
-      if (!m.classList || !m.classList.contains("modal-container")) return;
+      if (!m.classList || !(m.classList.contains("modal-container") || m.classList.contains("bases-toolbar-menu"))) return;
       if (!this.ddWatched) this.ddWatched = new WeakSet();
       if (this.ddWatched.has(m)) return;
       this.ddWatched.add(m);
@@ -261,6 +262,8 @@ export const eventsMethods = {
               // 먼저 자리를 재고(읽기) 그다음 굴절을 건다(쓰기): 읽기·쓰기가 번갈지 않게
               magnetRect = magnetBox(el);
               magnetAt = win.performance.now();
+              // 아이콘 버튼은 호버 유리 요소를 그 버튼에 넣는다 (굴절이 꺼져 있어도)
+              this.hoverGlassInto(el);
               this.refractHover(el);
             }
           }
@@ -370,6 +373,111 @@ export const eventsMethods = {
           }
         }
       };
+    // 누르고 있는 동안 누름 효과를 가장 커지고 하얀 자리에서 멈춰 두고, 뗄 때 이어서 돌아오게 한다 (사용자 요청: 버튼은 떼야 동작하는데
+    // 효과는 누르는 순간 혼자 끝났다). 누름 효과(커졌다 하얘지는 것, 0.34~0.46 구간이 가장 큰 자리)와 그동안 호버 유리를 옅게 하는 것(0.2~0.55)을
+    // 키프레임으로 알아보고, 진행이 0.4 를 지나면 멈춘다. 떼거나 취소되면(스크롤 시작 등) 다시 돌린다. 놓친 떼기에 대비해 5초 뒤에는 저절로 푼다
+    let holding = false;
+    let held: Animation[] = [];
+    let slowed: Animation[] = [];
+    let heldPlay: Animation[] = [];
+    let holdRaf = 0;
+    let holdTimer = 0;
+    const hasOffsets = (a: Animation, x: number, y: number) => {
+      const ef = a.effect as KeyframeEffect | null;
+      const k = ef && typeof ef.getKeyframes === "function" ? ef.getKeyframes() : [];
+      return k.some((f) => Math.abs((f.offset ?? -1) - x) < 0.001) && k.some((f) => Math.abs((f.offset ?? -1) - y) < 0.001);
+    };
+    const holdScan = () => {
+      if (!holding) return;
+      for (const a of doc.getAnimations()) {
+        if (a.playState !== "running" || held.includes(a) || heldPlay.includes(a)) continue;
+        // 가장 큰 자리(키프레임 구간)는 진행도(곡선을 거친 값) 기준이다. 시간 기준으로 멈추면 곡선 때문에 이미 그 자리를 지나 조금 줄어든 채 멈췄고,
+        // 뗄 때 가장 큰 모습부터 다시 줄어들어 '살짝 커졌다 줄어드는' 단계가 생겼다 (사용자 지적, 측정: 알약 폭 74.8 → 72.9 에서 멈춤)
+        // 메뉴 흰 빛: 가장 밝은 채로 다 나타난 자리(RIPPLE_HOLD)에서 멈추고, 떼면 남은 흐려짐을 이어 돈다 (사용자 요청)
+        const tgt = (a.effect as KeyframeEffect | null)?.target;
+        const menuRip = !!tgt && !!tgt.parentElement?.classList.contains("lg-ripple-menu");
+        const span = menuRip ? [RIPPLE_HOLD, RIPPLE_HOLD] : hasOffsets(a, 0.34, 0.46) ? [0.34, 0.46] : hasOffsets(a, 0.2, 0.55) ? [0.2, 0.55] : null;
+        if (!span || !a.effect) continue;
+        const prog = () => Number(a.effect.getComputedTiming().progress) || 0;
+        const p = prog();
+        // 가장 큰 자리에 가까워지면 재생 속도를 차츰 늦춰 부드럽게 멈춘다 (사용자 요청: 최대치에서 뚝 멈췄다). 짧은 클릭은 이 구간 전에 떼어 그대로다
+        if (p < span[0]) {
+          if (p >= span[0] - HOLD_EASE_SPAN) {
+            a.updatePlaybackRate(Math.max(0.15, (span[0] - p) / HOLD_EASE_SPAN));
+            if (!slowed.includes(a)) slowed.push(a);
+          }
+          continue;
+        }
+        // 구간 한가운데 진행도가 되는 시각을 찾아 거기서 멈춘다 (한 프레임에 구간을 건너뛰었어도 되돌려 맞춘다)
+        a.pause();
+        const goal = (span[0] + span[1]) / 2;
+        let lo = 0, hi = Number(a.currentTime) || 0;
+        for (let i = 0; i < 14; i++) {
+          const mid = (lo + hi) / 2;
+          a.currentTime = mid;
+          if (prog() < goal) lo = mid;
+          else hi = mid;
+        }
+        a.currentTime = hi;
+        (menuRip ? heldPlay : held).push(a);
+      }
+      holdRaf = win.requestAnimationFrame(holdScan);
+    };
+    const holdRelease = () => {
+      holding = false;
+      win.cancelAnimationFrame(holdRaf);
+      win.clearTimeout(holdTimer);
+      // 꾹 눌렀다 뗄 때는 남은 효과(가장 큰 자리를 지나 관성처럼 줄어드는 부분)를 이어 돌리지 않고, 멈춘 모습에서 원래대로 곧장 돌아오게 한다
+      // (사용자 요청: 짧은 클릭의 관성은 그대로, 꾹 눌렀을 때만 뺀다)
+      for (const a of held) {
+        try {
+          const ef = a.effect as KeyframeEffect | null;
+          const target = ef && ef.target;
+          if (!ef || !target || !target.isConnected) {
+            a.cancel();
+            continue;
+          }
+          const kf = ef.getKeyframes();
+          const peak = kf.find((f) => Math.abs((f.offset ?? -1) - 0.34) < 0.001) || kf.find((f) => Math.abs((f.offset ?? -1) - 0.2) < 0.001);
+          const from: Keyframe = {};
+          if (peak) for (const [k, v] of Object.entries(peak)) if (!["offset", "computedOffset", "easing", "composite"].includes(k)) from[k] = v;
+          a.cancel();
+          target.animate([{ ...from, offset: 0 }], { duration: HOLD_RETURN_MS, easing: EASE.press, pseudoElement: ef.pseudoElement || undefined });
+        } catch {
+          // 이미 떨어진 요소의 애니메이션
+        }
+      }
+      held = [];
+      for (const a of heldPlay) {
+        try {
+          a.updatePlaybackRate(1);
+          a.play();
+        } catch {
+          // 이미 떨어진 요소의 애니메이션
+        }
+      }
+      heldPlay = [];
+      // 늦추던 중에 뗀 것(가장 큰 자리 전)은 원래 속도로 이어 돈다
+      for (const a of slowed) {
+        try {
+          if (a.playState !== "idle") a.updatePlaybackRate(1);
+        } catch {
+          // 이미 떨어진 요소의 애니메이션
+        }
+      }
+      slowed = [];
+    };
+    this.registerDomEvent(doc, "pointerdown", (e) => {
+      if (e.button !== 0) return;
+      holdRelease();
+      holding = true;
+      holdRaf = win.requestAnimationFrame(holdScan);
+      holdTimer = win.setTimeout(holdRelease, 5000);
+    }, { capture: true });
+    this.registerDomEvent(doc, "pointerup", holdRelease, { capture: true });
+    this.registerDomEvent(doc, "pointercancel", holdRelease, { capture: true });
+    this.register(holdRelease);
+
     if (!Platform.isMobile) {
       this.registerDomEvent(doc, "pointerdown", pressFx, { capture: true });
     } else {
@@ -543,9 +651,38 @@ export const eventsMethods = {
         }
         for (const n of r.removedNodes) if (isMenu(n) && !Platform.isPhone) this.closeMenu(n, doc);
       }
+      if (Platform.isPhone) phonePause();
     });
     menuObs.observe(doc.body, { childList: true });
     this.observers.push(menuObs);
+
+    // 휴대폰: 메뉴 시트가 열려 있거나(올라오고 내려가는 동안 포함) 서랍이 움직이는 동안(열고 닫는 전환, 손가락으로 끄는 동안) 굴절을 멈춘다 (Refractor.setPaused).
+    // 시트·서랍이 움직이면 그 위아래에 떠 있는 유리(뷰 헤더 버튼·하단 막대)의 뒤가 바뀌어 굴절 필터가 매 프레임 다시 계산돼 끊겼다
+    // (사용자 지적, 휴대폰 녹화 측정: 서랍 열 때 프레임 간격 평균 약 21~27ms → 굴절을 끄면 약 12~16ms).
+    // 서랍이 움직이는 동안만 Obsidian 이 서랍에 인라인 transform 을 둔다(다 열리면 걷는다). 열려 있는 동안 내내 멈추면 서랍 안 유리(보기 전환 알약)의 굴절이 늘 빠졌다
+    const phonePause = () => {
+      const menu = els(doc.querySelectorAll<HTMLElement>(".menu")).some((m) => !m.classList.contains("lg-menu-ghost"));
+      const drawer = els(doc.querySelectorAll<HTMLElement>(".workspace-drawer")).some((d) => d.style.display !== "none" && !!d.style.transform);
+      this.refractor.setPaused(menu || drawer);
+    };
+    // 서랍은 화면 배치가 준비된 뒤에 생긴다: 플러그인이 켜질 때(attachDoc)는 아직 없어 감시가 하나도 붙지 않았다
+    // (검토 측정: 서랍에서는 멈춤이 안 걸리고, 메뉴를 한 번 연 뒤로는 굴절이 꺼진 채 남았다). 배치가 준비되거나 바뀔 때마다
+    // 새 서랍에 감시를 붙이고 상태를 다시 판정한다
+    if (Platform.isPhone && doc === document) {
+      const drawerObs = new win.MutationObserver(phonePause);
+      const seen = new WeakSet<HTMLElement>();
+      const hookDrawers = () => {
+        els(doc.querySelectorAll<HTMLElement>(".workspace-drawer")).forEach((d) => {
+          if (seen.has(d)) return;
+          seen.add(d);
+          drawerObs.observe(d, { attributes: true, attributeFilter: ["style"] });
+        });
+        phonePause();
+      };
+      this.observers.push(drawerObs);
+      this.app.workspace.onLayoutReady(hookDrawers);
+      this.registerEvent(this.app.workspace.on("layout-change", hookDrawers));
+    }
 
     // 편집창 탭을 마우스로 닫으면 Obsidian 은 커서가 탭 줄을 벗어날 때까지 탭 폭을 고정해 둔다(lockTabWidths).
     // 사용자 요청으로 닫은 뒤 바로 풀리게, 닫는 전환(240ms)이 끝나면 탭 줄에 mouseleave 를 보내 Obsidian 이 스스로 풀게 한다

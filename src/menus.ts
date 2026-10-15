@@ -1,8 +1,15 @@
 import { Menu, Platform } from "obsidian";
 import { els, strs, menuKey, layoutBottom, unitVec, isEl, placeSugg } from "./util";
-import { MORPH_DASH, MENU_DROP, EASE, MENU_MOVE_MS, MENU_POP } from "./constants";
+import { BASES_MENU_BTN, MORPH_DASH, MENU_DROP, EASE, MENU_MOVE_MS, MENU_POP } from "./constants";
 import type { GlassShelfPlugin } from "./host";
 import type { PressInfo } from "./internal";
+
+// 메뉴 항목의 메뉴 안 세로 자리. 메뉴는 커지는 중일 수 있어 화면 좌표 대신 offset 으로 잰다
+function itemTop(el: HTMLElement, menu: HTMLElement) {
+  let y = 0;
+  for (let e: HTMLElement | null = el; e && e !== menu; e = e.offsetParent as HTMLElement | null) y += e.offsetTop;
+  return y;
+}
 
 // 메뉴 항목 하나를 읽은 것 (readMenu)
 export interface MenuSnap {
@@ -22,6 +29,18 @@ export const menusMethods = {
     if (menu.lgSnap) return;
     const doc = menu.ownerDocument;
     const win = doc.defaultView || window;
+    // Bases 툴바 메뉴는 Obsidian 이 버튼마다 메뉴 요소를 두고 떼었다 다시 붙여 쓴다. 지난번 열림의 준비 표시(.lg-menu-ready)와
+    // 자리 고정 애니메이션이 남아, 넓어지기를 시작하기 전 두 프레임 동안 메뉴가 제자리에 다 그려져 보였다가 버튼 쪽 점으로 튀어
+    // 거기서 다시 넓어졌다 (사용자 지적: 좌우로 흔들림). 지난번 상태를 걷어 내고 처음 붙은 메뉴처럼 준비한다
+    if (menu.lgReady) {
+      menu.classList.remove("lg-menu-ready", "lg-menu-morph", "lg-bottom-auto", "lg-no-anim", "lg-min-w0");
+      menu.style.removeProperty("width");
+      menu.getAnimations().forEach((a) => a.cancel());
+      menu.lgReady = false;
+      menu.lgMorph = null;
+      menu.lgMoveFrom = null;
+      menu.lgReplaced = false;
+    }
     // 안전장치 (검토 지적): 태블릿은 준비(.lg-menu-ready) 전까지 메뉴의 커지는 애니메이션을 멈춰 둔다(테마). 아래에서 오류가 나 준비 표시를
     // 못 붙이면 메뉴가 투명한 채 남으므로, 0.4초 뒤에는 무조건 붙인다
     win.setTimeout(() => menu.classList.add("lg-menu-ready"), 400);
@@ -69,15 +88,40 @@ export const menusMethods = {
     }
     const target = fresh && isEl(press.target) ? press.target : null;
     // 커뮤니티 찾기 창의 정렬 버튼도 그래프 뷰 설정처럼 버튼에서 넓어진다 (사용자 요청, 휴대폰은 Obsidian 그대로)
-    const morphSel = Platform.isPhone ? ".workspace-drawer-vault-switcher, select.dropdown" : ".workspace-drawer-vault-switcher, select.dropdown, .mod-community-modal .community-modal-search > .clickable-icon";
+    // Bases 보기 고르기 버튼도 보관함 버튼처럼 메뉴가 버튼에서 넓어진다 (사용자 요청)
+    const morphSel = Platform.isPhone
+      ? `.workspace-drawer-vault-switcher, select.dropdown, ${BASES_MENU_BTN}`
+      : `.workspace-drawer-vault-switcher, select.dropdown, .mod-community-modal .community-modal-search > .clickable-icon, ${BASES_MENU_BTN}`;
     const src = target && target.closest<HTMLElement>(morphSel);
     // 버튼에서 넓어지는 메뉴는 준비될 때까지 숨긴다 (CSS: .lg-menu-morph)
     if (src) menu.classList.add("lg-menu-morph");
-    const run = (tries: number) => {
+    // Bases 메뉴는 내용을 다 그린 뒤 Obsidian 이 버튼 기준으로 자리를 다시 잡는다: 넓어지기를 마친 뒤 아래로 툭 옮겨 갔다 (사용자 지적).
+    // 자리가 한 프레임 그대로일 때까지 기다렸다가 넓어진다. 예전엔 세 프레임을 기다려 열리는 게 늦었다 (사용자 지적: 렉).
+    // 그 뒤 Obsidian 이 다시 옮기는 자리는 morphMenu 가 되돌린다
+    const settle = !!src && src.matches(BASES_MENU_BTN);
+    let lastPos = "";
+    let still = 0;
+    const run = (tries: number): void => {
       if (!menu.isConnected) return;
-      if ((menu.offsetWidth < 2 || menu.offsetHeight < 2) && tries < 6) return win.requestAnimationFrame(() => run(tries + 1));
+      if ((menu.offsetWidth < 2 || menu.offsetHeight < 2) && tries < 6) {
+        win.requestAnimationFrame(() => run(tries + 1));
+        return;
+      }
+      if (settle && tries < 24) {
+        const r = menu.getBoundingClientRect();
+        const pos = `${Math.round(r.left)},${Math.round(r.top)},${Math.round(r.width)},${Math.round(r.height)}`;
+        still = pos === lastPos ? still + 1 : 0;
+        lastPos = pos;
+        if (still < 1) {
+          win.requestAnimationFrame(() => run(tries + 1));
+          return;
+        }
+      }
       try {
-        if (src) return this.morphMenu(menu, src);
+        if (src) {
+          this.morphMenu(menu, src, settle);
+          return;
+        }
         // 편집창 탭 줄의 메뉴는 탭을 가리지 않게 탭 줄 밑으로
         const list = target && target.closest<HTMLElement>(".mod-root .workspace-tab-header-tab-list");
         const tabMenu = target && target.closest<HTMLElement>(".lg-tab-menu");
@@ -93,6 +137,10 @@ export const menusMethods = {
         if (row) this.focusRow(menu, row);
         // 하위 메뉴: Obsidian 은 부모 메뉴 바깥 끝에 붙여 연다. 부모 메뉴의 선택 하이라이트(고른 항목) 끝에 닿게 안쪽으로 당긴다 (사용자 요청)
         const subUp = sub ? this.tuckSubmenu(menu) : false;
+        // Bases 필터 메뉴의 묶음 조건 드롭다운(다음 중 전체가 참임): 필터 메뉴가 떠 있어 하위 메뉴로 잡히고 Obsidian 자리(드롭다운 아래)에
+        // 열렸다. 하위 메뉴처럼 드롭다운 오른쪽 옆에 열고, 첫 항목 위 끝을 드롭다운(호버 바탕) 위 끝에 맞춘다 (사용자 요청)
+        const conj = sub && pressed && isEl(press.target) ? press.target.closest<HTMLSelectElement>(".bases-query-container select.conjunction.dropdown") : null;
+        if (conj) this.placeBesideSelect(menu, conj);
         // 커지는 애니메이션(기준점 왼쪽 위) 중이므로 왼쪽 위 모서리만 쓴다
         const r = menu.getBoundingClientRect();
         let ox: number;
@@ -157,21 +205,30 @@ export const menusMethods = {
     // 고른 항목 아래끝에 맞춘다 (사용자 요청). 메뉴는 커지는 중이라 화면 좌표 대신 offset 으로 잰다
     const items = menu.querySelectorAll<HTMLElement>(".menu-item");
     if (!items.length) return false;
-    const rel = (el: HTMLElement) => {
-      let y = 0;
-      for (let e: HTMLElement | null = el; e && e !== menu; e = e.offsetParent as HTMLElement | null) y += e.offsetTop;
-      return y;
-    };
     const top = parseFloat(menu.style.top);
     const y0 = Number.isFinite(top) ? top : menu.offsetTop;
     const h = menu.offsetHeight;
     const up = y0 + h <= ir.top + 4;
     const last = items[items.length - 1];
-    let y = up ? ir.bottom - (rel(last) + last.offsetHeight) : ir.top - rel(items[0]);
+    let y = up ? ir.bottom - (itemTop(last, menu) + last.offsetHeight) : ir.top - itemTop(items[0], menu);
     const vh = (doc.defaultView || window).innerHeight;
     y = Math.max(4, Math.min(y, vh - h - 4));
     menu.style.top = `${y.toFixed(1)}px`;
     return up;
+  },
+
+  // 드롭다운 메뉴를 드롭다운 오른쪽 옆에 둔다(오른쪽에 자리가 없으면 왼쪽 옆). 첫 항목 위 끝을 드롭다운 위 끝에 맞춘다 (tuckSubmenu 와 같은 세로 규칙)
+  placeBesideSelect(this: GlassShelfPlugin, menu: HTMLElement, sel: HTMLElement) {
+    const win = menu.ownerDocument.defaultView || window;
+    const items = menu.querySelectorAll<HTMLElement>(".menu-item");
+    if (!items.length) return;
+    const r = sel.getBoundingClientRect();
+    const w = menu.offsetWidth;
+    const h = menu.offsetHeight;
+    const x = r.right + w <= win.innerWidth - 4 ? r.right : Math.max(4, r.left - w);
+    const y = Math.max(4, Math.min(r.top - itemTop(items[0], menu), win.innerHeight - h - 4));
+    menu.style.left = `${x.toFixed(1)}px`;
+    menu.style.top = `${y.toFixed(1)}px`;
   },
 
   // 검색 탭의 검색 제안: 검색창 유리(.search-input-container::after)가 제안 높이만큼 아래로 늘어나고,
@@ -337,7 +394,8 @@ export const menusMethods = {
   // 보관함 전환 메뉴: 버튼이 메뉴의 왼쪽 아래 꼭짓점에 오게 둔다(위에 자리가 없으면 왼쪽 위 꼭짓점).
   // 버튼은 메뉴 가운데를 향해 돌진하며 작아져 사라지고, 둘 사이 중간 지점에서 메뉴 창이 넓어져 나온다.
   // 창 크기만 바뀌고 안의 내용은 제자리에 그대로 있다
-  morphMenu(this: GlassShelfPlugin, menu: HTMLElement, src: HTMLElement) {
+  // keep: 메뉴를 옮기지 않고 Obsidian 이 둔 자리를 목표로 넓어진다 (Bases 보기 메뉴)
+  morphMenu(this: GlassShelfPlugin, menu: HTMLElement, src: HTMLElement, keep = false) {
     const win = menu.ownerDocument.defaultView || window;
     const b = src.getBoundingClientRect();
     // 드롭다운: 메뉴는 드롭다운 폭 이상, 왼쪽으로 열린다: 드롭다운이 메뉴의 오른쪽 위 꼭짓점에 온다(아래에 자리가 없으면 오른쪽 아래 꼭짓점) (사용자 요청)
@@ -363,15 +421,27 @@ export const menusMethods = {
       menu.style.width = `${W}px`;
       menu.style.removeProperty("min-width");
     }
+    // Bases 메뉴는 Obsidian 이 최소 폭(220px)을 CSS 로 걸어, 넓어지는 동안 폭이 줄지 못하고 다 큰 메뉴가 버튼 쪽 점에서
+    // 옆으로 미끄러져 왔다 (사용자 지적: 좌우로 흔들림). 넓어지는 동안만 잰 폭으로 고정하고 최소 폭은 푼다 (styles.css .lg-min-w0).
+    // 다 넓어지면 둘 다 걷는다: 고정 폭이 남으면 뒤늦게 넓어지는 내용(필터의 속성 칸)이 "폴…"처럼 잘렸다 (사용자 지적)
+    if (keep) {
+      menu.style.width = `${W}px`;
+      menu.classList.add("lg-min-w0");
+    }
     // 커뮤니티 찾기 창 정렬 메뉴는 버튼에서 오른쪽 아래로 연다(사용자 요청). 아래 자리가 모자라면 위로
     const downFirst = src.matches(".mod-community-modal .community-modal-search > .clickable-icon");
-    const top = drop
+    // Bases 메뉴는 Obsidian 이 정하는 자리 그대로 둔다(버튼 왼쪽 끝, 버튼 아래 끝 + 4px, 화면 끝 10px 안, 사용자 결정).
+    // Obsidian 은 메뉴 크기가 바뀔 때마다(메뉴에 건 ResizeObserver) 버튼 자리를 기준으로 다시 놓는데, 같은 자리라 맞서지 않는다.
+    // 다른 자리에 두면 넓어지는 동안 매 프레임 덮어써져, 되돌리거나 고정하는 방식은 깜빡임·렉·닫힘 사본 어긋남이 생겼다
+    const top = keep
+      ? b.bottom + 4
+      : drop
       ? (up ? b.bottom - H : b.top)
       : downFirst
         ? (b.top + H <= win.innerHeight - 8 ? b.top : Math.max(8, b.bottom - H))
         : (b.bottom - H >= 8 ? b.bottom - H : b.top);
     // 보관함 메뉴는 창 왼쪽 끝에서 16px 띄운다: 버튼 자리(10px)에 붙여 열면 왼쪽이 너무 붙어 보였다 (사용자 지적)
-    const left = drop ? Math.max(8, b.right - W) : src.matches(".workspace-drawer-vault-switcher") ? Math.max(16, b.left) : b.left;
+    const left = keep ? Math.max(10, Math.min(win.innerWidth - W - 10, b.left)) : drop ? Math.max(8, b.right - W) : src.matches(".workspace-drawer-vault-switcher") ? Math.max(16, b.left) : b.left;
     const anchor: "left" | "right" = drop ? "right" : "left";
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
@@ -403,8 +473,14 @@ export const menusMethods = {
     }
     // 창이 작은 동안 안의 내용이 따라 줄지 않게 크기를 잠시 고정한다
     if (inner) this.pinSize(inner);
-    const grow = this.growBox(menu, inner ? [{ el: inner, anchor }] : [], dot, full, 90);
-    if (inner) grow.onfinish = grow.oncancel = () => this.unpinSize(inner);
+    const grow = this.growBox(menu, inner ? [{ el: inner, anchor, layout: true }] : [], dot, full, 90);
+    grow.onfinish = grow.oncancel = () => {
+      if (inner) this.unpinSize(inner);
+      if (keep) {
+        menu.style.removeProperty("width");
+        menu.classList.remove("lg-min-w0");
+      }
+    };
     if (inner) inner.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, delay: 120, easing: "ease-out", fill: "backwards" });
   },
 
@@ -434,7 +510,7 @@ export const menusMethods = {
         const inner = ghost.querySelector<HTMLElement>(".menu-scroll");
         if (inner) this.pinSize(inner);
         if (inner) inner.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 60, easing: "ease-in", fill: "forwards" });
-        this.shrinkBox(ghost, inner && !drop ? [{ el: inner, anchor: anchor || "left" }] : [], full, dot).onfinish = () => ghost.remove();
+        this.shrinkBox(ghost, inner && !drop ? [{ el: inner, anchor: anchor || "left", layout: true }] : [], full, dot).onfinish = () => ghost.remove();
         if (src.lgHide) {
           src.lgHide.cancel();
           src.lgHide = null;

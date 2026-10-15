@@ -1,5 +1,6 @@
+import { Platform } from "obsidian";
 import { INJECTED } from "./util";
-import { LENS_TAB, LENS_TAB_TEXT } from "./refract";
+import { LENS_TAB, LENS_TAB_PC, LENS_TAB_TEXT } from "./refract";
 import type { GlassShelfPlugin } from "./host";
 
 // 패널 탭 렌즈: 평평한 곳을 넓힌다 (refractor.attach 의 look 으로 넘긴다)
@@ -34,6 +35,7 @@ export const LENS_TG_TALL = 3; // 토글 렌즈가 되었을 때 실제 높이�
 // 3) 작아짐: 도착 쪽 끝은 그대로, 반대쪽 끝이 관성처럼 밀려와 찌그러지고(TAB_SQUASH), 이어 폭이 늘어나게 찌그러지며
 //    높이는 조금 낮아진다(TAB_STRETCH·TAB_STRETCH_H). 그동안 렌즈가 선택 알약 크기로 작아지며 유리가 빠지고, 가장 길 때 끝난다
 // 4) 원상복구: 길고 조금 낮은 찌그러짐이 선택 알약 비율로 돌아온다
+let shadeSeq = 0;
 // 요소의 화면 배율 (화면 폭 ÷ 레이아웃 폭 offsetWidth). 1px 안쪽 차이는 정수로 잘린 offsetWidth 탓이라 1로 본다
 const scaleOf = (ow: number, r: DOMRect): number => (ow && Math.abs(r.width - ow) >= 1 ? r.width / ow : 1);
 
@@ -50,6 +52,7 @@ interface TabMeasure {
 interface LensMeasure {
   hr: DOMRect;
   innerH: number;
+  ir: DOMRect;
   tabs: TabMeasure[];
 }
 
@@ -58,7 +61,7 @@ const CLONE_BOX = ["display", "flex-direction", "flex-wrap", "align-items", "jus
 const CLONE_SIZE = ["width", "height", "min-width", "margin", "flex-grow", "flex-shrink", "flex-basis", "align-self", "order"];
 export const TAB_LENS_MS = 80; // 선택 알약 → 렌즈
 export const TAB_PRESS_K = 0.5; // 패널 탭을 누를 때 탭 줄 알약이 커지는 정도 (다른 알약 대비)
-export const TAB_LENS_W = 1.2; // 이동 중 렌즈 폭 (기본 탭 폭 대비, 더하는 양은 절대값)
+export const TAB_LENS_W = 1.8; // 이동 중 렌즈 폭 (기본 탭 폭 대비, 더하는 양은 절대값). 1.2 에서 사용자 요청으로 넓게
 export const TAB_GROW_MS = 90; // 도착 전 커지는 시간
 export const TAB_GROW_FWD = 9; // 도착 전 커질 때 폭에 더하는 px. 도착 쪽(앞)으로 늘었다가 작아지는 동안 선택 알약 끝으로 돌아온다 (조율기 값)
 export const MOBILE_TAB_GROW_FWD = 0; // 모바일 서랍은 도착 쪽으로 튀어나가지 않는다 (사용자 요청)
@@ -69,6 +72,7 @@ export const TAB_SQUASH_AT = 0.25; // 작아짐 구간에서 가장 눌리는 �
 export const TAB_SQUASH_HOLD = 0.25; // 가장 눌린 채 머무는 길이 (작아짐 구간 대비, 사용자 요청)
 export const TAB_STRETCH = 0.08; // 작아짐이 끝날 때 폭이 늘어난 정도
 export const TAB_STRETCH_H = 0.08; // 그때 높이가 낮아진 정도
+export const TAB_SQUASH_SMALL = 0.7; // 탭 줄 넓게·이름 표시를 둘 다 끈 탭 줄의 찌그러짐 배율 (사용자 요청으로 줄임)
 // 모바일 서랍 보기 전환: 이동 중 높이는 선택 알약 그대로, 도착 전 선택 알약의 이 배율로 커지고, 눌림은 이만큼 (사용자 요청)
 export const MOBILE_TAB_GROW = 1.1;
 export const MOBILE_TAB_SQUASH = 0.1;
@@ -117,6 +121,8 @@ export class SegmentLens {
   declare textInner: HTMLElement;
   declare textSig: string;
   declare textAct: string;
+  // 그늘 필터를 렌즈마다 따로 두는 표 (좌우 패널 렌즈가 같은 크기 필터를 함께 쓰면 알약 그림 자리가 서로 덮였다)
+  declare shadeTag: string;
 
   constructor(header: HTMLElement, inner: HTMLElement, plugin: GlassShelfPlugin) {
     this.header = header;
@@ -146,7 +152,8 @@ export class SegmentLens {
 
   measure(): LensMeasure {
     const hr = this.header.getBoundingClientRect();
-    const innerH = this.inner.getBoundingClientRect().height;
+    const ir = this.inner.getBoundingClientRect();
+    const innerH = ir.height;
     const tabs: TabMeasure[] = [];
     for (const tab of Array.from(this.inner.querySelectorAll<HTMLElement>(":scope > .workspace-tab-header"))) {
       const tr = tab.getBoundingClientRect();
@@ -154,7 +161,7 @@ export class SegmentLens {
       const ti = tab.querySelector<HTMLElement>(":scope > .workspace-tab-header-inner");
       tabs.push({ tab, ti, tr, tir: ti ? ti.getBoundingClientRect() : null, ow: tab.offsetWidth, tiow: ti ? ti.offsetWidth : 0 });
     }
-    return { hr, innerH, tabs };
+    return { hr, innerH, ir, tabs };
   }
 
   moveTo(fromTab: HTMLElement, toTab: HTMLElement) {
@@ -190,14 +197,24 @@ export class SegmentLens {
   }
 
   // 렌즈 크기에 맞는 굴절 필터 (2px 단위로 묶어 지도 수를 줄인다)
-  filterAt(w: number, h: number, look = LENS_TAB) {
+  // shade: 렌즈 안 탭 줄 알약 밖(패널 바탕)이 어둡게 비치는 필터 (렌즈마다 따로, Refractor.filterFor 의 shadeTag)
+  filterAt(w: number, h: number, look = LENS_TAB, shade = false) {
     const q = (v: number) => Math.max(4, Math.round(v / 2) * 2);
-    return this.plugin.refractor.filterFor(q(w), q(h), 42, false, true, this.header.ownerDocument, undefined, undefined, look);
+    // 모바일 서랍 탭(keepH)은 렌즈가 탭 줄 알약 밖으로 나가지 않아 그늘이 필요 없다 (사용자 요청으로 뺌)
+    if (this.keepH) shade = false;
+    // 데스크톱 패널 렌즈는 안쪽을 더 작게 (LENS_TAB_PC)
+    if (look === LENS_TAB && !this.keepH) look = LENS_TAB_PC;
+    if (shade && !this.shadeTag) this.shadeTag = String(++shadeSeq);
+    return this.plugin.refractor.filterFor(q(w), q(h), 42, false, true, this.header.ownerDocument, undefined, undefined, look, undefined, shade ? this.shadeTag : "");
   }
 
   // 렌즈 안 글자는 탭 줄과 따로 굴절한다 (사용자 요청: 한 굴절로 같이 휘면 가운데 선 방식에서 글자가 옆으로 늘어진다).
   // 원래 탭 글자(.workspace-tab-header-inner)는 렌즈 모양만큼 잘라 숨겨 렌즈 유리가 탭 줄만 떠 오게 하고,
   // 렌즈 자리에 탭 복사본을 렌즈 모양으로 잘라 올려 글자 전용 굴절(LENS_TAB_TEXT)을 건다. 굴절 세기는 렌즈 정도 g 를 따른다
+  // 모바일은 글자에 굴절을 걸지 않는다 (사용자 결정): 복사본은 렌즈 위에 그대로 올려 글자가 휘지 않고 또렷하게 보인다.
+  // 탭 줄 굴절과 글자 굴절 두 필터가 매 프레임 돌아 보기 전환이 끊겼고, 둘 중 글자 쪽이 더 무거웠다
+  // (휴대폰 녹화 측정, 움직이는 동안 프레임 간격 평균: 둘 다 약 19.5ms, 글자 굴절 끔 약 16.8ms, 둘 다 끔 약 15.5ms).
+  // 복사본을 아예 빼면 원래 글자가 렌즈(탭 목록 위 층) 아래에 깔려 렌즈 굴절에 같이 휜다
   textLens(x0: number, y0: number, vw: number, vh: number, g: number, m: LensMeasure) {
     const tabs = m.tabs.map((x) => x.tab);
     if (!this.refract || g <= 0 || !tabs.length) return this.textOff();
@@ -232,7 +249,12 @@ export class SegmentLens {
     // 탭 수·이름이 바뀌면 다시 복사하고(배치 값까지), 선택 탭만 바뀌면 복사본의 글자색만 다시 옮긴다.
     // 전환마다 통째로 다시 복사하면 요소 300개의 계산된 스타일을 읽느라 첫 프레임이 45ms 끊겼다 (폰 측정).
     // 복사본은 탭 줄 밖이라 글자색은 원래 것을 그대로 옮긴다
-    const sig = tabs.map((t) => t.getAttribute("aria-label") || t.textContent || "").join("\u0001");
+    // 복사본은 계산된 배치(display 등)를 인라인으로 굳혀 두므로, 이름 표시·탭 줄 넓게 설정이 바뀌면 다시 만든다:
+    // 켠 채 시작한 뒤 끄면 이름이 남고, 끈 채 시작한 뒤 켜면 이름이 없었다 (사용자 지적)
+    const bc = this.header.ownerDocument.body.classList;
+    const sig =
+      tabs.map((t) => t.getAttribute("aria-label") || t.textContent || "").join("\u0001") +
+      `|${bc.contains("lg-tab-names") ? 1 : 0}${bc.contains("lg-tab-wide") ? 1 : 0}`;
     const actSig = tabs.map((t) => (t.hasClass("is-active") ? "1" : "0")).join("");
     const pairs = (tab: HTMLElement, c: HTMLElement) => {
       const src = [tab, ...Array.from(tab.querySelectorAll<HTMLElement>("*"))];
@@ -241,6 +263,7 @@ export class SegmentLens {
     };
     const copyInk = (tab: HTMLElement, c: HTMLElement) => {
       c.classList.toggle("is-active", tab.hasClass("is-active"));
+      c.classList.remove("mobile-tap");
       for (const [s, d] of pairs(tab, c)) {
         if (s.closest("svg") && s.tagName.toLowerCase() !== "svg") continue;
         const cs = getComputedStyle(s);
@@ -254,6 +277,9 @@ export class SegmentLens {
       this.textInner.empty();
       for (const tab of tabs) {
         const c = tab.cloneNode(true) as HTMLElement;
+        // 누르는 동안 Obsidian 이 잠깐 붙이는 터치 표시(회색 바탕)는 옮기지 않는다: 복사할 때 눌려 있던 탭의 복사본에 남아,
+        // 렌즈가 그 탭을 지날 때마다 선택 하이라이트처럼 보였다 (사용자 지적: 휴대폰 오른쪽 서랍에서 한 번 누른 가운데 탭)
+        c.classList.remove("mobile-tap");
         pairs(tab, c).forEach(([s, d], i) => {
           d.style.removeProperty("clip-path");
           // 배치도 계산된 값으로 옮긴다: 복사본은 탭 목록 밖(.lg-seg-text)이라 탭 목록 자식 선택자로 거는 규칙(모바일 서랍의 기호 밑 작은 이름 등)을
@@ -308,6 +334,10 @@ export class SegmentLens {
     put(this.textEl, "border-radius", `${n(vh * this.rx)}px / ${n(r)}px`);
     put(this.textInner, "left", `${(-px0).toFixed(3)}px`);
     put(this.textInner, "top", `${(-py0).toFixed(3)}px`);
+    if (Platform.isMobile) {
+      if (s.filter) s.removeProperty("filter");
+      return;
+    }
     const id = this.filterAt(vw, vh, LENS_TAB_TEXT);
     const f = this.header.ownerDocument.getElementById(id);
     const dm = f && f.querySelector("feDisplacementMap");
@@ -346,7 +376,7 @@ export class SegmentLens {
     const sizes: [number, number][] = [];
     for (const [w0, h0, wa, ha] of legs) for (let k = 0; k <= 1.0001; k += 0.05) sizes.push([w0 + (wa - w0) * k, h0 + (ha - h0) * k]);
     // 글자 전용 굴절 지도도 같은 크기들로 굽는다 (뒤에 붙여 탭 줄 지도가 먼저 구워진다)
-    const texts = sizes.map(([w, h]) => [w, h, 1] as [number, number, number]);
+    const texts = Platform.isMobile ? [] : sizes.map(([w, h]) => [w, h, 1] as [number, number, number]);
     const win = this.header.ownerDocument.defaultView || window;
     // 굽는 도중 테마를 끄거나 플러그인을 끄면 멈춘다 (굴절 도구가 바뀌었거나 없어졌다)
     const ref = this.plugin.refractor;
@@ -358,7 +388,7 @@ export class SegmentLens {
           const sz = sizes.shift();
           const [w, h, txt] = sz ? [sz[0], sz[1], 0] : texts.shift();
           try {
-            this.filterAt(w, h, txt ? LENS_TAB_TEXT : LENS_TAB);
+            this.filterAt(w, h, txt ? LENS_TAB_TEXT : LENS_TAB, !txt);
           } catch (err) {
             console.error("[glass-shelf] prebake", err);
             return;
@@ -423,7 +453,14 @@ export class SegmentLens {
     const w1 = b.w + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? b.h : Hc;
     const h2 = this.keepH ? b.h * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
-    const SQ = this.keepH ? MOBILE_TAB_SQUASH : TAB_SQUASH;
+    // 탭 줄 넓게와 이름 표시를 둘 다 끈 작은 탭 줄에서는 찌그러짐(눌림·늘어남)을 TAB_SQUASH_SMALL 배로 줄인다 (사용자 요청).
+    // 크기 변화와 이동은 그대로
+    const tabsEl = this.header.closest<HTMLElement>(".workspace-tabs");
+    const small = !this.keepH && !!tabsEl && !this.plugin.tabWideOf(tabsEl) && !this.plugin.settings.tabNames;
+    const f = small ? TAB_SQUASH_SMALL : 1;
+    const SQ = (this.keepH ? MOBILE_TAB_SQUASH : TAB_SQUASH) * f;
+    const ST = TAB_STRETCH * f;
+    const STH = TAB_STRETCH_H * f;
     const FWD = this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD;
     const w2 = b.w + h2 * TAB_REF_RATIO - R + FWD;
     // 도착 쪽 끝: 선택 알약의 그쪽 끝. 도착하는 순간부터 끝까지 여기 선다
@@ -468,7 +505,7 @@ export class SegmentLens {
       g = 1 - k;
       // 눌림·늘어남도 R 기준 px 를 지금 폭에 대한 배율로 바꿔 쓴다
       const sq = (SQ * R) / bw;
-      const st = (TAB_STRETCH * R) / bw;
+      const st = (ST * R) / bw;
       if (x < TAB_SQUASH_AT) {
         const q = x / TAB_SQUASH_AT;
         sx = 1 - sq * (1 - Math.pow(1 - q, 2)); // 밀려오며 감속
@@ -478,7 +515,7 @@ export class SegmentLens {
       } else {
         const q = smooth((x - TAB_SQUASH_AT - TAB_SQUASH_HOLD) / (1 - TAB_SQUASH_AT - TAB_SQUASH_HOLD));
         sx = lerp(1 - sq, 1 + st, q);
-        sy = 1 - TAB_STRETCH_H * q;
+        sy = 1 - STH * q;
       }
       cx = lead - (dir * bw * sx) / 2;
       cy = b.cy;
@@ -489,8 +526,8 @@ export class SegmentLens {
       bw = b.w;
       bh = b.h;
       g = 0;
-      sx = lerp(1 + (TAB_STRETCH * R) / b.w, 1, k);
-      sy = lerp(1 - TAB_STRETCH_H, 1, k);
+      sx = lerp(1 + (ST * R) / b.w, 1, k);
+      sy = lerp(1 - STH, 1, k);
       cx = lead - (dir * bw * sx) / 2;
       cy = b.cy;
     } else {
@@ -509,8 +546,12 @@ export class SegmentLens {
     el.classList.toggle("lg-seg-on", true);
     if (el.style.getPropertyValue("--lg-g") !== g.toFixed(3)) el.style.setProperty("--lg-g", g.toFixed(3));
     if (this.refract && g > 0) {
-      const v = `url(#${this.filterAt(bw, bh)})`;
+      const id = this.filterAt(bw, bh, LENS_TAB, true);
+      const v = `url(#${id})`;
       if (this.lensEl.style.getPropertyValue("--lg-refract") !== v) this.lensEl.style.setProperty("--lg-refract", v);
+      // 그늘 필터의 알약 그림을 탭 줄 알약 자리로 (렌즈 좌표: 배율을 걸기 전, 렌즈 왼쪽 위 기준)
+      const ir = m.ir, x0 = cx - (bw * sx) / 2 - (ir.left - m.hr.left), y0 = cy - (bh * sy) / 2 - (ir.top - m.hr.top);
+      if (!this.keepH) this.plugin.refractor.shadeAt(this.header.ownerDocument, id, -x0 / sx, -y0 / sy, ir.width / sx, ir.height / sy, (ir.height * this.rx) / sx);
     }
     this.textLens(cx - (bw * sx) / 2, cy - (bh * sy) / 2, bw * sx, bh * sy, g, m);
     this.raf = window.requestAnimationFrame((tt) => this.step(tt));

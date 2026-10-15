@@ -2,7 +2,7 @@ import type { ItemView } from "obsidian";
 import type { MorphKid } from "./morph";
 import { INJECTED, els, unitVec, isEl, newEl } from "./util";
 import { MORPH_DASH, NAV_SEARCH_MAX, EASE, RIPPLE_K, RIPPLE_HOLD, MINI_EASE, KB_GROUP_ICONS, KB_LANE_MS, KB_DASH_MS } from "./constants";
-import { PRESS_WHITE } from "./refract";
+import { PRESS_WHITE, PRESS_IMG } from "./refract";
 import type { GlassShelfPlugin } from "./host";
 
 export const kanbanMethods = {
@@ -82,6 +82,78 @@ export const kanbanMethods = {
     const br = btn.getBoundingClientRect();
     sw.style.setProperty("--lg-kb-top", `${br.top - pr.top}px`);
     sw.style.setProperty("--lg-kb-right", `${pr.right - br.right}px`);
+  },
+
+  // ---------- Bases (테마 Bases 절과 짝) ----------
+  // 검색 버튼은 칸반 검색과 같은 클래스(.lg-kb-search-btn, 보기에 .lg-kb-searching)를 써서 같은 넓어짐·누름 효과를 받는다 (사용자 요청).
+  // Obsidian 은 검색 줄(.bases-search-row)을 툴바 아래 보기 내용 맨 위에 그린다. 켜져 있는 동안 그 줄을 넓어진 버튼 위로 옮긴다(테마)
+  setupBases(this: GlassShelfPlugin, view: ItemView) {
+    const root = view && view.containerEl;
+    const content = view && view.contentEl;
+    if (!root || !root.isConnected || !content) return;
+    const btn = content.querySelector<HTMLElement>(".bases-toolbar-search > .text-icon-button");
+    if (btn && !btn.classList.contains("lg-kb-search-btn")) btn.classList.add("lg-kb-search-btn");
+    const win = content.ownerDocument.defaultView || window;
+    // 툴바·검색 줄은 보기를 다시 그릴 때 새로 생긴다: 보기 내용 바로 아래 자식이 바뀌면 다시 붙인다
+    if (!this.kbWatched.has(content)) {
+      const watch = new win.MutationObserver(() => this.setupBases(view));
+      watch.observe(content, { childList: true });
+      this.kbWatched.add(content);
+      this.observers.push(watch);
+    }
+    const row = content.querySelector<HTMLElement>(":scope > .bases-search-row");
+    if (row && !this.kbWatched.has(row)) {
+      const obs = new win.MutationObserver(() => this.basesSearch(root, content));
+      obs.observe(row, { attributes: true, attributeFilter: ["style", "class"] });
+      this.kbWatched.add(row);
+      this.observers.push(obs);
+    }
+    if (btn && !this.kbWatched.has(btn)) {
+      const obs = new win.MutationObserver(() => this.basesSearch(root, content));
+      obs.observe(btn, { attributes: true, attributeFilter: ["class"] });
+      this.kbWatched.add(btn);
+      this.observers.push(obs);
+    }
+    // 그룹 표시: 툴바가 다시 그려지면(보기 바꿈·설정 바뀜) 다시 본다
+    const bar = content.querySelector<HTMLElement>(".bases-toolbar");
+    if (bar && !this.kbWatched.has(bar)) {
+      const obs = new win.MutationObserver(() => this.basesGroupMark(view));
+      obs.observe(bar, { childList: true, subtree: true, characterData: true });
+      this.kbWatched.add(bar);
+      this.observers.push(obs);
+    }
+    this.basesGroupMark(view);
+    this.basesSearch(root, content);
+  },
+
+  // 지금 보기에 그룹이 걸려 있으면 그룹 버튼에 .lg-on (테마: 강조색). Obsidian 은 그룹 버튼에 표시가 없다.
+  // 설정은 Bases 내부 값(controller.view.config)을 읽기만 한다
+  basesGroupMark(this: GlassShelfPlugin, view: ItemView) {
+    const btn = view.contentEl.querySelector<HTMLElement>(".bases-toolbar-group-menu > .text-icon-button");
+    if (!btn) return;
+    const ctl = (view as unknown as { controller?: { view?: { config?: { get?: (k: string) => unknown } } } }).controller;
+    let on = false;
+    try {
+      const cfg = ctl && ctl.view && ctl.view.config;
+      const g = cfg && cfg.get ? cfg.get("groupBy") : null;
+      on = !!g;
+    } catch {
+      on = false;
+    }
+    if (btn.classList.contains("lg-on") !== on) btn.classList.toggle("lg-on", on);
+  },
+
+  basesSearch(this: GlassShelfPlugin, root: HTMLElement, content: HTMLElement) {
+    const row = content.querySelector<HTMLElement>(":scope > .bases-search-row");
+    const btn = content.querySelector<HTMLElement>(".bases-toolbar-search > .lg-kb-search-btn");
+    const on = !!(row && btn && btn.classList.contains("is-active") && row.style.display !== "none");
+    if (root.classList.contains("lg-kb-searching") !== on) root.classList.toggle("lg-kb-searching", on);
+    if (!on) return;
+    const op = row.offsetParent || content;
+    const pr = op.getBoundingClientRect();
+    const br = btn.getBoundingClientRect();
+    row.style.setProperty("--lg-kb-top", `${br.top - pr.top}px`);
+    row.style.setProperty("--lg-kb-right", `${pr.right - br.right}px`);
   },
 
   // 카드 추가 입력 칸을 닫으면 Kanban 이 입력 칸을 다시 카드 추가 버튼으로 바꿔 끼운다.
@@ -330,7 +402,7 @@ export const kanbanMethods = {
       const r = btn.getBoundingClientRect();
       const k = (1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1))).toFixed(3);
       const opt = { duration: 570, easing: EASE.press };
-      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: "none" };
+      const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
       const accent = win.getComputedStyle(btn).backgroundColor;
       const t0 = win.performance.now();
       btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], opt);
