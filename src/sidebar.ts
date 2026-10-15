@@ -43,9 +43,17 @@ export const sidebarMethods = {
     type Layer = { el: HTMLElement; gs: SVGGElement[]; origin: string; mirrors: Map<Animation, Animation[]> };
     type Hole = { root: SVGGElement; rect: SVGRectElement; layers: Layer[]; dash?: Animation | null };
     // 모서리 반지름 (가로·세로가 다른 타원 모서리, % 값도)
+    // 전환 중에는 계산값이 calc(0% + 17.34px) 처럼 % 와 px 를 섞어 나온다. 숫자로 읽히지 않아 0 이 되면 구멍이 네모났다
+    // (사용자 지적: 패널 검색창을 닫을 때 구멍이 네모나게 뚫림)
     const radii = (btn: HTMLElement, w: number, h: number) => {
-      const [a, b = a] = getComputedStyle(btn).borderTopLeftRadius.split(" ");
-      const len = (v: string, of: number) => (v.endsWith("%") ? (parseFloat(v) / 100) * of : parseFloat(v) || 0);
+      const v = getComputedStyle(btn).borderTopLeftRadius;
+      const parts = v.match(/calc\([^)]*\)|\S+/g) || ["0"];
+      const [a, b = a] = parts;
+      const len = (s: string, of: number) => {
+        let sum = 0;
+        for (const m of s.replace(/-\s+/g, "-").matchAll(/(-?[\d.]+)(%|px)?/g)) sum += m[2] === "%" ? (parseFloat(m[1]) / 100) * of : parseFloat(m[1]) || 0;
+        return sum;
+      };
       return [len(a, w), len(b, h)];
     };
     type Box = { x: number; y: number; w: number; h: number };

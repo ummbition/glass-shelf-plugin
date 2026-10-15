@@ -474,8 +474,34 @@ export const eventsMethods = {
       holdRaf = win.requestAnimationFrame(holdScan);
       holdTimer = win.setTimeout(holdRelease, 5000);
     }, { capture: true });
+    // 메뉴를 누르고 있는 동안 커서를 옮기면 흰 빛도 따라온다 (사용자 요청). 빛은 메뉴 판 기준 자리(left·top)에 그려진다
+    const followMenu = (x: number, y: number) => {
+      doc.querySelectorAll<HTMLElement>(".lg-ripple-menu > .lg-ripple-dot").forEach((dot) => {
+        const host = dot.parentElement && dot.parentElement.parentElement;
+        if (!host) return;
+        const r = host.getBoundingClientRect();
+        dot.style.left = `${x - r.left}px`;
+        dot.style.top = `${y - r.top}px`;
+      });
+    };
+    // 모바일: 손가락이 움직이면 브라우저가 메뉴 스크롤로 가져가 포인터가 취소(pointercancel)되고 포인터 이동도 끊긴다.
+    // 메뉴 빛이 있는 동안은 취소로 놓지 않고 터치 이벤트로 따라가다 손을 뗄 때 놓는다 (사용자 요청: 모바일에서도 누른 채 옮기기)
+    if (Platform.isMobile) {
+      this.registerDomEvent(doc, "touchmove", (e: TouchEvent) => {
+        if (holding && e.touches[0]) followMenu(e.touches[0].clientX, e.touches[0].clientY);
+      }, { capture: true, passive: true });
+      this.registerDomEvent(doc, "touchend", holdRelease, { capture: true, passive: true });
+      this.registerDomEvent(doc, "touchcancel", holdRelease, { capture: true, passive: true });
+    }
+    this.registerDomEvent(doc, "pointermove", (e: PointerEvent) => {
+      if (!holding) return;
+      followMenu(e.clientX, e.clientY);
+    }, { capture: true, passive: true });
     this.registerDomEvent(doc, "pointerup", holdRelease, { capture: true });
-    this.registerDomEvent(doc, "pointercancel", holdRelease, { capture: true });
+    this.registerDomEvent(doc, "pointercancel", (e: PointerEvent) => {
+      if (Platform.isMobile && e.pointerType === "touch" && doc.querySelector(".lg-ripple-menu")) return;
+      holdRelease();
+    }, { capture: true });
     this.register(holdRelease);
 
     if (!Platform.isMobile) {

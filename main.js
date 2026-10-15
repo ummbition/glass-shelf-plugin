@@ -2388,8 +2388,31 @@ var eventsMethods = {
       holdRaf = win.requestAnimationFrame(holdScan);
       holdTimer = win.setTimeout(holdRelease, 5e3);
     }, { capture: true });
+    const followMenu = (x, y) => {
+      doc.querySelectorAll(".lg-ripple-menu > .lg-ripple-dot").forEach((dot) => {
+        const host = dot.parentElement && dot.parentElement.parentElement;
+        if (!host) return;
+        const r = host.getBoundingClientRect();
+        dot.style.left = `${x - r.left}px`;
+        dot.style.top = `${y - r.top}px`;
+      });
+    };
+    if (import_obsidian6.Platform.isMobile) {
+      this.registerDomEvent(doc, "touchmove", (e) => {
+        if (holding && e.touches[0]) followMenu(e.touches[0].clientX, e.touches[0].clientY);
+      }, { capture: true, passive: true });
+      this.registerDomEvent(doc, "touchend", holdRelease, { capture: true, passive: true });
+      this.registerDomEvent(doc, "touchcancel", holdRelease, { capture: true, passive: true });
+    }
+    this.registerDomEvent(doc, "pointermove", (e) => {
+      if (!holding) return;
+      followMenu(e.clientX, e.clientY);
+    }, { capture: true, passive: true });
     this.registerDomEvent(doc, "pointerup", holdRelease, { capture: true });
-    this.registerDomEvent(doc, "pointercancel", holdRelease, { capture: true });
+    this.registerDomEvent(doc, "pointercancel", (e) => {
+      if (import_obsidian6.Platform.isMobile && e.pointerType === "touch" && doc.querySelector(".lg-ripple-menu")) return;
+      holdRelease();
+    }, { capture: true });
     this.register(holdRelease);
     if (!import_obsidian6.Platform.isMobile) {
       this.registerDomEvent(doc, "pointerdown", pressFx, { capture: true });
@@ -4496,6 +4519,9 @@ var menusMethods = {
     const { ux, uy } = unitVec(bx, by, left + W / 2, top + H / 2);
     const dot = drop ? this.dotAt(bx, by, b.height) : this.dotAt(bx + ux * MORPH_DASH, by + uy * MORPH_DASH, b.height);
     menu.lgSrc = src;
+    const leafEl = src.closest(".workspace-leaf-content");
+    const slot = src.parentElement && [...src.parentElement.classList].find((c) => c.startsWith("bases-toolbar-") && c !== "bases-toolbar-item");
+    menu.lgSrcFind = leafEl && slot ? () => leafEl.querySelector(`.${slot} > .text-icon-button`) : void 0;
     menu.lgMorph = { ux, uy, dot, anchor };
     if (!drop) {
       if (src.lgHide) src.lgHide.cancel();
@@ -4534,7 +4560,8 @@ var menusMethods = {
       doc.body.appendChild(ghost);
       win.setTimeout(() => ghost.remove(), 900);
       if (menu.lgKey) this.lastShut = { key: menu.lgKey, rect: ghost.getBoundingClientRect(), t: win.performance.now(), ghost };
-      const src = menu.lgSrc;
+      let src = menu.lgSrc;
+      if (src && !src.isConnected && menu.lgSrcFind) src = menu.lgSrcFind() || src;
       if (menu.lgMorph && src && src.isConnected) {
         const { ux, uy, dot, anchor } = menu.lgMorph;
         const r = ghost.getBoundingClientRect();
@@ -5291,8 +5318,14 @@ var sidebarMethods = {
     const HOLE_SPAN = 0.9;
     const IDLE = /^(offset|easing|composite|computedOffset|background.*|color|boxShadow|border.*Color|outline.*|filter|backdropFilter|webkitBackdropFilter|fill|stroke|--.*)$/;
     const radii = (btn, w, h) => {
-      const [a, b = a] = getComputedStyle(btn).borderTopLeftRadius.split(" ");
-      const len = (v, of) => v.endsWith("%") ? parseFloat(v) / 100 * of : parseFloat(v) || 0;
+      const v = getComputedStyle(btn).borderTopLeftRadius;
+      const parts = v.match(/calc\([^)]*\)|\S+/g) || ["0"];
+      const [a, b = a] = parts;
+      const len = (s, of) => {
+        let sum = 0;
+        for (const m of s.replace(/-\s+/g, "-").matchAll(/(-?[\d.]+)(%|px)?/g)) sum += m[2] === "%" ? parseFloat(m[1]) / 100 * of : parseFloat(m[1]) || 0;
+        return sum;
+      };
       return [len(a, w), len(b, h)];
     };
     const n3 = (v) => String(+v.toFixed(3));

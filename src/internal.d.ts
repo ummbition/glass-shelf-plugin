@@ -64,6 +64,7 @@ export interface LgState {
   lgTintBusy?: boolean;
   // 패널 머리 줄 (넓게 모드)
   lgSrc?: HTMLElement;
+  lgSrcFind?: () => HTMLElement | null;
   lgIcon?: string;
   lgClickAt?: number;
   lgWasOpen?: boolean;

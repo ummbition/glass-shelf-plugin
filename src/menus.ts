@@ -454,6 +454,10 @@ export const menusMethods = {
     // 드롭다운 메뉴는 드롭다운(글자와 화살표 원 전체) 가운데의 점에서 나타나고 그 점으로 사라진다 (사용자 요청)
     const dot = drop ? this.dotAt(bx, by, b.height) : this.dotAt(bx + ux * MORPH_DASH, by + uy * MORPH_DASH, b.height);
     menu.lgSrc = src;
+    // 다른 곳을 눌러 닫으면 Bases 가 툴바를 다시 그려 버튼이 바뀐다: 닫을 때 같은 보기의 같은 자리 버튼을 다시 찾는다
+    const leafEl = src.closest<HTMLElement>(".workspace-leaf-content");
+    const slot = src.parentElement && [...src.parentElement.classList].find((c) => c.startsWith("bases-toolbar-") && c !== "bases-toolbar-item");
+    menu.lgSrcFind = leafEl && slot ? () => leafEl.querySelector<HTMLElement>(`.${slot} > .text-icon-button`) : undefined;
     menu.lgMorph = { ux, uy, dot, anchor };
     // 드롭다운은 제자리에 그대로 두고 메뉴만 허공에서 넓어져 나온다 (사용자 요청)
     if (!drop) {
@@ -499,7 +503,10 @@ export const menusMethods = {
       win.setTimeout(() => ghost.remove(), 900);
       // 같은 대상을 다시 우클릭해 곧바로 새 메뉴가 붙으면 이 자리에서 옮겨 간다 (setupMenu)
       if (menu.lgKey) this.lastShut = { key: menu.lgKey, rect: ghost.getBoundingClientRect(), t: win.performance.now(), ghost };
-      const src = menu.lgSrc;
+      // 버튼이 바뀌었으면(Bases 툴바를 다시 그림) 새 버튼으로 돌아간다. 예전엔 제자리에서 반으로 줄며 사라져, 먼 곳을 눌러 닫으면
+      // 버튼 오른쪽에서 작아졌다 (사용자 지적)
+      let src = menu.lgSrc;
+      if (src && !src.isConnected && menu.lgSrcFind) src = menu.lgSrcFind() || src;
       if (menu.lgMorph && src && src.isConnected) {
         const { ux, uy, dot, anchor } = menu.lgMorph;
         const r = ghost.getBoundingClientRect();
