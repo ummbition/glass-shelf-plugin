@@ -81,10 +81,24 @@ export const webMethods = {
     // 눌러도 포커스가 들어가 알약이 넓어졌다 (사용자 지적)
     const input = addr.querySelector("input");
     const pill = el.parentElement;
-    const typing = () => pill && pill.classList.toggle("lg-web-typing", !!input && input.ownerDocument.activeElement === input);
+    // 고치는 동안은 body 에도 알려 창 끌기 띠를 끈다(테마 .lg-addr-typing): 탭 줄 빈 곳은 창 끌기 영역이라 눌러도 페이지가 누름을 받지 못해
+    // 입력칸 포커스가 빠지지 않았고, 알약이 넓어진 채 남았다 (사용자 지적)
+    // 웹 페이지 본문을 실제로 누르면 포커스가 페이지(다른 화면)로 넘어가는데, 이때 Obsidian 문서의 입력칸은 blur 없이 포커스를 쥔 채로 남는다
+    // (창만 포커스를 잃는다, 사용자 지적: 본문을 눌러도 알약이 넓은 채). 그래서 창이 포커스를 가졌는지도 본다
+    const typing = () => {
+      const doc = input ? input.ownerDocument : null;
+      const on = !!doc && doc.activeElement === input && doc.hasFocus();
+      if (pill) pill.classList.toggle("lg-web-typing", on);
+      if (doc) doc.body.classList.toggle("lg-addr-typing", on);
+    };
+    const win = input ? input.ownerDocument.defaultView : null;
     if (input) {
       input.addEventListener("focus", typing);
       input.addEventListener("blur", typing);
+    }
+    if (win) {
+      win.addEventListener("blur", typing);
+      win.addEventListener("focus", typing);
     }
     typing();
     el.lgWebUrl = {
@@ -96,7 +110,12 @@ export const webMethods = {
           input.removeEventListener("focus", typing);
           input.removeEventListener("blur", typing);
         }
+        if (win) {
+          win.removeEventListener("blur", typing);
+          win.removeEventListener("focus", typing);
+        }
         if (pill) pill.classList.remove("lg-web-typing");
+        if (input) input.ownerDocument.body.classList.remove("lg-addr-typing");
       },
     };
   },
@@ -524,8 +543,12 @@ export const webMethods = {
     const L = c ? colorLightness(c, tabs.ownerDocument) : null;
     if (header) {
       header.classList.toggle("lg-glass-mix", L != null);
-      if (L != null) header.setCssProps({ "--lg-glass-t": String(Math.round(Math.min(1, Math.max(0, (GLASS_MIX_HI - L) / (GLASS_MIX_HI - GLASS_MIX_LO))) * 1000) / 1000) });
+      const t = L != null ? Math.round(Math.min(1, Math.max(0, (GLASS_MIX_HI - L) / (GLASS_MIX_HI - GLASS_MIX_LO))) * 1000) / 1000 : 0;
+      if (L != null) header.setCssProps({ "--lg-glass-t": String(t) });
       else header.style.removeProperty("--lg-glass-t");
+      // 밝기 곡선(필터라 섞을 수 없다)은 다크 쪽이 많으면 다크 곡선 (.lg-glass-dk, 테마). 라이트 곡선은 어두운 페이지 위에서
+      // 알약 가장자리를 밝혀 흰 테두리처럼 보였다 (사용자 지적)
+      header.classList.toggle("lg-glass-dk", L != null && t >= 0.5);
     }
   },
 
@@ -547,6 +570,7 @@ export const webMethods = {
     }
     if (!tint) return;
     el.classList.add("lg-web-pop", "lg-glass-mix");
+    el.classList.toggle("lg-glass-dk", parseFloat(t || "0") >= 0.5);
     el.setCssProps({ "--lg-web-tint": tint, "--lg-glass-t": t || "0" });
   },
 
@@ -559,7 +583,7 @@ export const webMethods = {
     for (const doc of this.docs) {
       if (!doc.body) continue;
       doc.querySelectorAll<HTMLElement>(".lg-web-tinted").forEach((el: HTMLElement) => el.classList.remove("lg-web-tinted"));
-      doc.querySelectorAll<HTMLElement>(".mod-root .lg-glass-mix").forEach((el: HTMLElement) => { el.classList.remove("lg-glass-mix"); el.style.removeProperty("--lg-glass-t"); });
+      doc.querySelectorAll<HTMLElement>(".mod-root .lg-glass-mix").forEach((el: HTMLElement) => { el.classList.remove("lg-glass-mix", "lg-glass-dk"); el.style.removeProperty("--lg-glass-t"); });
     }
   },
 

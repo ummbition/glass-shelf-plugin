@@ -29,7 +29,10 @@ export const pressMethods = {
         return g;
       });
       this.register(() => {
-        doc.lgHoverPool?.forEach((g) => g.remove());
+        doc.lgHoverPool?.forEach((g) => {
+          g.lgGlassMo?.disconnect();
+          g.remove();
+        });
         doc.lgHoverPool = undefined;
       });
     }
@@ -37,7 +40,22 @@ export const pressMethods = {
     const pool = doc.lgHoverPool;
     const g = pool.shift();
     pool.push(g);
+    g.lgGlassMo?.disconnect();
     el.prepend(g);
+    // Obsidian 의 아이콘 바꾸기(setIcon)는 맨 앞 자식 하나를 빼고 새 아이콘을 맨 뒤에 붙인다. 맨 앞이 호버 유리면 유리가 빠지고 예전 아이콘이 남아
+    // 아이콘이 둘이 됐다 (사용자 지적: 읽기 모드 버튼, 웹 뷰어 새로고침). 그렇게 바뀌면 남은 예전 아이콘을 빼고 유리를 다시 맨 앞에 넣는다
+    const win = doc.defaultView || window;
+    const mo = new win.MutationObserver((recs) => {
+      if (!recs.some((r) => [...r.removedNodes].includes(g))) return;
+      const added = recs.flatMap((r) => [...r.addedNodes]).filter((n) => n.nodeName.toLowerCase() === "svg");
+      const fresh = added[added.length - 1];
+      if (!fresh || g.parentElement) return;
+      const old = el.firstChild;
+      if (old && old !== fresh && old.nodeName.toLowerCase() === "svg") old.remove();
+      el.prepend(g);
+    });
+    mo.observe(el, { childList: true });
+    g.lgGlassMo = mo;
     return g;
   },
 
@@ -53,17 +71,51 @@ export const pressMethods = {
     return el.animate(frames, { ...opt, pseudoElement: "::before" });
   },
 
+  // 컴팩트 모드(설정)일 때 단독 버튼: 살짝 커졌다 바로 작아지기만 한다, 빛 없음 (사용자 요청. 아니면 흰색으로 크게 커진다).
+  // 누르고 있으면 가장 커진 자리(0.4)에서 멈춘다 (사용자 요청, id 의 lg-hold-0.4 로 알아본다). pseudo: 유리를 그린 의사 요소 (없으면 요소 자체)
+  clickPop(this: GlassShelfPlugin, el: HTMLElement, pseudo?: string) {
+    const r = el.getBoundingClientRect();
+    const k = (1 + Math.min(0.08, 4 / Math.max(r.width, r.height, 1))).toFixed(3); // 최대 8%·4px (사용자 요청: 6%·3px 에서 조금 더)
+    const opt: KeyframeAnimationOptions = { duration: 260, easing: "cubic-bezier(0.3, 0, 0.3, 1)" };
+    // 빛(색 바뀜)은 없다: 커졌다 작아지기만 (사용자 요청)
+    const peak: Keyframe = { offset: 0.4 };
+    if (pseudo) peak.transform = `scale(${k})`;
+    else peak.scale = k;
+    const pop = el.animate([peak], pseudo ? { ...opt, pseudoElement: pseudo } : opt);
+    pop.id = "lg-hold-0.4";
+    return [null, pop];
+  },
+
+  // 누름 효과가 끝나기 전에 다시 누르면: 하던 효과(누름·꾹 누름에서 돌아오기·호버 유리 옅게)를 지우고 지금 모습을 첫 장면으로 돌려준다.
+  // 예전엔 앞 효과가 남아 새 효과가 끝난 뒤 앞 효과가 이어 돌아 두 번 재생됐다 (사용자 지적, 태블릿). 하던 효과가 없으면 null
+  pressRestart(this: GlassShelfPlugin, el: HTMLElement, pseudo: string | undefined, props: [string, string][]): Keyframe | null {
+    const own = el.getAnimations({ subtree: true }).filter((a) => {
+      if ("transitionProperty" in a || "animationName" in a) return false;
+      const ef = a.effect as KeyframeEffect | null;
+      return !!ef && (ef.target === el || (!!ef.target && "classList" in ef.target && ef.target.classList.contains("lg-hover-glass")));
+    });
+    if (!own.length) return null;
+    const cs = (el.ownerDocument.defaultView || window).getComputedStyle(el, pseudo);
+    const from: Keyframe = { offset: 0 };
+    for (const [key, css] of props) from[key] = cs.getPropertyValue(css);
+    own.forEach((a) => a.cancel());
+    return from;
+  },
+
   // k: 가장 클 때 배율 (기본 1.28)
   pressPop(this: GlassShelfPlugin, el: HTMLElement, k = 1.28) {
+    if (this.pressClick) return this.clickPop(el, "::after");
     try {
-      const hover = this.fadeHover(el, { duration: 600, easing: EASE.press });
-      // 가운데쯤 흰 원이 되어 잠깐(약 0.08초) 머문다 (광택은 사라지고 테두리는 남는다)
+      const from = this.pressRestart(el, "::after", [["transform", "transform"], ["backgroundColor", "background-color"]]);
+      const hover = this.fadeHover(el, { duration: 500, easing: EASE.press });
+      // 가운데쯤 흰 원이 되어 잠깐(약 0.06초) 머문다 (광택은 사라지고 테두리는 남는다)
       const pop = el.animate(
         [
+          ...(from ? [from] : []),
           { offset: 0.34, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG },
           { offset: 0.46, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG },
         ],
-        { duration: 600, easing: EASE.press, pseudoElement: "::after" }
+        { duration: 500, easing: EASE.press, pseudoElement: "::after" }
       );
       return [hover, pop];
     } catch (err) {
@@ -74,10 +126,14 @@ export const pressMethods = {
 
   // pressPop 과 같은 값인데 유리가 요소 자체에 있는 버튼용. 누를 때 작아지는 transform 과 겹치지 않게 scale 속성으로 건다
   pressPopSelf(this: GlassShelfPlugin, el: HTMLElement, k = 1.28) {
+    if (this.pressClick) {
+      this.clickPop(el);
+      return;
+    }
     try {
-      this.fadeHover(el, { duration: 600, easing: EASE.press });
+      this.fadeHover(el, { duration: 500, easing: EASE.press });
       const peak = { scale: String(k), backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
-      el.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 600, easing: EASE.press });
+      el.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 500, easing: EASE.press });
     } catch (err) {
       console.error("[glass-shelf] pop-self", err);
     }
@@ -100,7 +156,7 @@ export const pressMethods = {
     let restarts = 0;
     const tick = () => {
       const t = win.performance.now() - t0;
-      if (t > 600) return;
+      if (t > 500) return;
       if (shown(el)) {
         if (restarts < 3 && t > 30 && win.getComputedStyle(el, "::after").transform === "none") {
           restarts++;
@@ -125,6 +181,8 @@ export const pressMethods = {
     try {
       const pill = el.closest<HTMLElement>(PRESS_PILL);
       if (!pill) return;
+      // 컴팩트 모드면 버튼 묶음은 커지지도 빛나지도 않는다 (사용자 요청)
+      if (this.pressClick) return;
       // 목록 방식 패널의 탭은 누름 효과가 없다 (사용자 요청)
       if (el.matches(".workspace-tab-header") && el.closest(".lg-tab-list")) return;
       const r = pill.getBoundingClientRect();
@@ -133,7 +191,7 @@ export const pressMethods = {
       // 패널 탭 줄은 커지는 정도를 TAB_PRESS_K 배로, 버튼 묶음 알약은 GROUP_PRESS_K 배로 줄인다 (사용자 요청)
       const group = pill.matches(PRESS_GROUP);
       const k = 1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1)) * (tab ? TAB_PRESS_K : group ? GROUP_PRESS_K : 1);
-      const opt = { duration: 570, easing: EASE.press };
+      const opt = { duration: 470, easing: EASE.press };
       pill.animate([{ offset: 0.34, scale: k.toFixed(3) }, { offset: 0.46, scale: k.toFixed(3) }], opt);
       // 패널 탭은 커졌다 줄어들기만 한다 (흰 빛 없음)
       if (tab) return;
@@ -146,11 +204,15 @@ export const pressMethods = {
 
   // 알약 버튼 하나를 누름: 크기에 맞춰 조금 커지고(최대 20%, 16px 만큼) 가장 클 때 하얘졌다 돌아온다
   pressPill(this: GlassShelfPlugin, btn: HTMLElement) {
+    if (this.pressClick) {
+      this.clickPop(btn);
+      return;
+    }
     try {
       const r = btn.getBoundingClientRect();
       const k = (1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1))).toFixed(3);
       const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
-      btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 570, easing: EASE.press });
+      btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 470, easing: EASE.press });
     } catch (err) {
       console.error("[glass-shelf] press-pill", err);
     }
@@ -160,17 +222,31 @@ export const pressMethods = {
   pressMobile(this: GlassShelfPlugin, t: HTMLElement) {
     try {
       let el = t.closest<HTMLElement>(MOBILE_PRESS_POP);
+      // 태블릿에서 컴팩트 모드를 켜면 컴퓨터처럼: 단독 버튼은 살짝 커졌다 작아지기만, 버튼 묶음은 효과 없음
+      if (this.pressClick) {
+        if (el && !el.matches(".modal-setting-back-button")) {
+          this.clickPop(el);
+          return true;
+        }
+        if (!el && t.closest<HTMLElement>(MOBILE_PRESS_BTN)) return true;
+      }
       let k = 1.28;
       let white = true;
-      let dur = 600;
+      let dur = 500;
       if (!el) {
         const btn = t.closest<HTMLElement>(MOBILE_PRESS_BTN);
         el = btn && btn.closest<HTMLElement>(MOBILE_PRESS_PILL);
+        // 태블릿의 데스크톱식 버튼 묶음(탭 줄 묶음·경로 알약 등)도 휴대폰과 같은 효과 (사용자 요청: 컴팩트 모드를 끄면 어느 기기든 휴대폰처럼).
+        // 편집창 탭 트랙은 렌즈가 맡는다
+        if (!el && btn) {
+          const pill = btn.closest<HTMLElement>(PRESS_PILL);
+          if (pill && !pill.matches(".workspace-tab-header-container-inner")) el = pill;
+        }
         if (!el) return false;
         const r = el.getBoundingClientRect();
         k = 1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1));
         white = !el.matches(".workspace-drawer-tab-options-list") || this.tabPlain();
-        dur = 570;
+        dur = 470;
       }
       // 설정 창 뒤로 버튼은 누르는 순간 커지며 사라진다 (backGhost)
       if (el.matches(".modal-setting-back-button")) {
@@ -179,7 +255,8 @@ export const pressMethods = {
       }
       const peak = { scale: k.toFixed(3) };
       if (white) Object.assign(peak, { backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG });
-      el.animate([Object.assign({ offset: 0.34 }, peak), Object.assign({ offset: 0.46 }, peak)], {
+      const from = this.pressRestart(el, undefined, white ? [["scale", "scale"], ["backgroundColor", "background-color"]] : [["scale", "scale"]]);
+      el.animate([...(from ? [from] : []), Object.assign({ offset: 0.34 }, peak), Object.assign({ offset: 0.46 }, peak)], {
         duration: dur,
         easing: EASE.press,
       });
@@ -216,7 +293,7 @@ export const pressMethods = {
       const r = el.getBoundingClientRect();
       // 메뉴가 열릴 때 살짝 더 커지는 정도(2%)만
       const k = 1.02;
-      const opt = { duration: 570, easing: EASE.press };
+      const opt = { duration: 470, easing: EASE.press };
       el.animate([{ offset: 0.34, scale: k.toFixed(3) }, { offset: 0.46, scale: k.toFixed(3) }], opt);
       // 누르자마자 뜨는 검색 제안도 같은 효과를 이어받게 기억해 둔다 (attachSearchSuggest)
       el.lgPress = { t: performance.now(), k, opt };
@@ -230,6 +307,8 @@ export const pressMethods = {
   // size: 흰 빛 지름 (없으면 알약 높이 × RIPPLE_K), cls: 덧붙일 클래스,
   // hold: 지름을 줘도 가장 밝은 채로 퍼지는 구간을 둔다, from: 처음 크기(지름 대비, 기본 0)
   pressRipple(this: GlassShelfPlugin, btn: HTMLElement, e: MouseEvent, size?: number, cls?: string, hold = false, from: number | string = 0) {
+    // 컴팩트 모드면 알약 안 버튼은 빛도 없다 (사용자 요청). 메뉴·검색창 등 따로 정한 빛은 그대로
+    if (this.pressClick && !cls) return;
     const el = btn.closest<HTMLElement>(PRESS_PILL) || btn;
     const doc = el.ownerDocument;
     const r = el.getBoundingClientRect();

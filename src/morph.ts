@@ -1,5 +1,5 @@
 import { els, unitVec } from "./util";
-import { BASES_MENU_BTN, MORPH_DASH, MORPH_OVERSHOOT, MORPH_NUDGE, EASE, KB_PILL_DOT, KB_DASH_MS } from "./constants";
+import { MORPH_DASH, MORPH_OVERSHOOT, MORPH_NUDGE, EASE, KB_PILL_DOT, KB_DASH_MS } from "./constants";
 import type { GlassShelfPlugin } from "./host";
 import type { Box } from "./internal";
 
@@ -91,7 +91,7 @@ export const morphMethods = {
     const grow = (p: "left" | "top" | "width" | "height") => full[p] + (full[p] - dot[p]) * 0.02;
     const over: Box = { left: grow("left"), top: grow("top"), width: grow("width"), height: grow("height") };
     const round = Math.min(full.width, full.height) / 2;
-    const opt: KeyframeAnimationOptions = { duration: 420, delay, easing: "linear", fill: "backwards" };
+    const opt: KeyframeAnimationOptions = { duration: 300, delay, easing: "linear", fill: "backwards" }; // 420 → 300 (사용자 요청: 메뉴를 더 빠르게)
     el.animate([{ opacity: 0 }, { offset: 0.2, opacity: 1 }, { opacity: 1 }], opt);
     // 펼쳐지는 방향(작은 원 → 창 가운데)으로 창이 내용과 함께 MORPH_NUDGE 만큼 밀렸다가 제자리로
     const { ux, uy } = unitVec(dot.left + dot.width / 2, dot.top + dot.height / 2, full.left + full.width / 2, full.top + full.height / 2);
@@ -121,7 +121,7 @@ export const morphMethods = {
   // 창(full)이 작은 원(dot)으로 줄며 사라진다 (반동 없이, 도중엔 더 둥글게)
   shrinkBox(this: GlassShelfPlugin, el: HTMLElement, kids: MorphKid[], full: Box, dot: Box): Animation {
     const round = Math.min(full.width, full.height) / 2;
-    const opt: KeyframeAnimationOptions = { duration: 200, easing: EASE.exit, fill: "forwards" };
+    const opt: KeyframeAnimationOptions = { duration: 150, easing: EASE.exit, fill: "forwards" }; // 200 → 150 (사용자 요청)
     el.animate([{ opacity: 1 }, { offset: 0.7, opacity: 1 }, { opacity: 0 }], opt);
     return this.boxMorph(el, kids, [{ box: full }, { radius: round, offset: 0.45 }, { box: dot }], full, opt);
   },
@@ -132,7 +132,7 @@ export const morphMethods = {
     const h = el.offsetHeight;
     // 칸반 버튼 묶음은 높이는 그대로 두고 폭만 높이의 KB_PILL_DOT 배까지 줄인다 (사용자 요청: 좌우로만, 원이 될 때까지)
     if (el.matches(".lg-kb-group")) return (w - h * KB_PILL_DOT) / 2;
-    return el.matches(`.workspace-drawer-vault-switcher, ${BASES_MENU_BTN}`) && w > h * 1.3 ? (w - h) / 2 : 0;
+    return el.matches(".workspace-drawer-vault-switcher") && w > h * 1.3 ? (w - h) / 2 : 0;
   },
 
   // 버튼이 흐려지고 나타나는 효과. 요소 자체의 opacity 를 움직이면 그동안 요소가 뒤 화면을 떠 오는 경계(Backdrop Root)가 되어
@@ -228,15 +228,9 @@ export const morphMethods = {
     return back;
   },
 
-  // 돌진 움직임. Bases 보기 버튼은 요소 자체를 옮기지 않고 보이는 층(유리 ::after, 링 ::before, 안의 내용)만 옮긴다:
-  // Obsidian 이 그 메뉴를 버튼 자리 기준으로 매 프레임 다시 놓아, 버튼을 옮기면 메뉴가 따라 내려갔다 (사용자 지적)
+  // 돌진 움직임
   dashMove(this: GlassShelfPlugin, el: HTMLElement, frames: Keyframe[], opt: KeyframeAnimationOptions): Animation {
-    if (!el.matches(BASES_MENU_BTN)) return el.animate(frames, opt);
-    const main = el.animate(frames, { ...opt, pseudoElement: "::after" });
-    // 나머지 층은 호출부가 취소하는 main 을 따라 함께 취소한다: 남은 돌진 위치(fill forwards)가 층마다 어긋나 버튼이 갈라졌다 (사용자 지적)
-    const rest = [el.animate(frames, { ...opt, pseudoElement: "::before" }), ...Array.from(el.children).filter((k) => !k.classList.contains("lg-hover-glass")).map((k) => k.animate(frames, opt))];
-    main.addEventListener("cancel", () => rest.forEach((a) => a.cancel()));
-    return main;
+    return el.animate(frames, opt);
   },
 
   // 그래프 설정 창: 설정 버튼(원)이 창의 오른쪽 위 꼭짓점. 버튼은 창 가운데를 향해 돌진하며 사라지고,

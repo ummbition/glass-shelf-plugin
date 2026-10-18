@@ -4,13 +4,13 @@ export type Palette = [string, string][];
 // 설정 값의 모양. 값의 뜻은 DEFAULTS 의 주석에 있다
 export interface Settings {
   glassLevel: number;
-  hoverLarge: boolean;
   showPath: boolean;
   webTint: boolean;
   miniBar: boolean;
   popupOpaque: boolean;
   sideAcrylic: boolean;
   refraction: boolean;
+  reduceMotion: string;
   toggleColor: string;
   tint: string;
   tintColor: string;
@@ -37,6 +37,8 @@ export interface Settings {
   folderColors?: Record<string, string>;
   // 사용자가 고친 팔레트 (없으면 기본 팔레트)
   folderPalette?: Palette;
+  // 보기 종류 → 그 보기의 아이콘 이름. 보기가 열릴 때 배워 둔다 (파일 탐색기 문서 종류 기호)
+  viewIcons?: Record<string, string>;
 }
 
 // data.json 에서 읽은 그대로의 값 (옛 키가 남아 있을 수 있다)
@@ -47,8 +49,6 @@ export const DEFAULTS: Settings = {
   // 1~5: 유리 뒤를 바탕색 쪽으로 바래게 (--lg-fade 0.45~0.8). 6~10: 다 바랜 채로 채움을 더해 뿌옇게 (예전 뿌연 정도 1~5).
   // 흐림 세기는 테마에 고정(--lg-blur-k)
   glassLevel: 5,
-  // 호버 유리 크기: false = 알약 안 버튼 크기(컨테이너보다 작게, 파일 앱), true = 컨테이너 높이(사파리)
-  hoverLarge: false,
   // 탭 줄 첫 줄에 지금 문서의 "폴더 / 파일" 경로를 보이고, 탭은 둘째 줄로 내린다
   showPath: true,
   webTint: true,
@@ -60,6 +60,8 @@ export const DEFAULTS: Settings = {
   sideAcrylic: false,
   // 굴절(가장자리에서 뒤 배경이 휘어 보이는 효과)
   refraction: true,
+  // 컴팩트 모드: 버튼 누름 효과를 줄이는 곳. "off" = 끔, "pc" = PC 만, "pcTablet" = PC·태블릿 (휴대폰은 늘 원래 효과)
+  reduceMotion: "pc",
   // 토글·슬라이더 색: "green" = iOS 색(토글 초록, 슬라이더 파랑), "accent" = 둘 다 Obsidian 강조색
   toggleColor: "green",
   // 유리 틴트: "none" = 투명, "accent" = Obsidian 강조색, "obsidian" = Obsidian 기본 보라, "custom" = tintColor

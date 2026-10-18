@@ -2,9 +2,17 @@ import type { View, WorkspaceLeaf, WorkspaceTabs } from "obsidian";
 import { Menu, MarkdownView, Platform, setIcon, setTooltip } from "obsidian";
 import { tr, INJECTED, HIDDEN, els, strs, layoutBottom, isEl } from "./util";
 import { isWebView, WEB_KEYS_PASS } from "./web-page";
-import { MENU_DROP, MINI_TOP, MINI_STEP, MINI_MS, MINI_EASE, MINI_PULL } from "./constants";
+import { MENU_DROP, MINI_TOP, MINI_STEP, MINI_MS, MINI_EASE, MINI_PULL, ACT_MAX } from "./constants";
 import type { GlassShelfPlugin } from "./host";
 import type { LgState } from "./internal";
+
+// 보기 헤더 버튼 대리 → 원래 버튼, 대리를 만들 때 원래 버튼의 이름·기호
+const ACT_SRC = new WeakMap<HTMLElement, HTMLElement>();
+const ACT_KEY = new WeakMap<HTMLElement, string>();
+// 퍼즐 버튼 → 묶인 원래 버튼들
+const ACT_LIST = new WeakMap<HTMLElement, HTMLElement[]>();
+// 경로 알약 북마크 기호 → 원래 북마크 기호
+const BM_SRC = new WeakMap<HTMLElement, HTMLElement>();
 
 export const tabsMethods = {
   // 탭 그룹 요소에서 지금 선택된 리프를 찾는다
@@ -55,6 +63,8 @@ export const tabsMethods = {
       nav.appendChild(
         this.makeButton("lg-tab-back", "arrow-left", tr("뒤로", "Back"), () => this.goHistory(tabsEl, "back"))
       );
+      // 뒤로·앞으로 사이 구분선 (사용자 요청, 사파리처럼). 앞으로가 숨으면(.lg-solo) 함께 사라진다 (테마)
+      nav.createSpan({ cls: ["lg-nav-sep", INJECTED] });
       nav.appendChild(
         this.makeButton("lg-tab-forward", "arrow-right", tr("앞으로", "Forward"), () => this.goHistory(tabsEl, "forward"))
       );
@@ -78,7 +88,7 @@ export const tabsMethods = {
       header.insertBefore(mode, tabList || null);
     }
 
-    // +·읽기 모드·탭 목록(쌓기 메뉴)을 알약 하나(.lg-tab-tools)로 묶는다 (사용자 요청). + 와 탭 목록은 Obsidian 원래 버튼을 옮겨
+    // 읽기 모드·+·탭 목록(쌓기 메뉴)을 알약 하나(.lg-tab-tools)로 묶는다 (사용자 요청, 읽기 모드가 + 앞). + 와 탭 목록은 Obsidian 원래 버튼을 옮겨
     // 동작이 그대로다. 읽기 모드가 필요 없으면 버튼이 좌우로 접혀 알약이 좁아진다(테마). 휴대폰은 탭 줄이 달라 묶지 않는다
     if (!Platform.isPhone) {
       const newTab = header.querySelector<HTMLElement>(".workspace-tab-header-new-tab");
@@ -89,7 +99,10 @@ export const tabsMethods = {
         if (header.lgBalanceObs) header.lgBalanceObs.observe(tools);
       }
       if (tools.parentElement !== header) header.insertBefore(tools, newTab && newTab.parentElement === header ? newTab : mode);
-      const want = [newTab, mode, list].filter(Boolean);
+      // 플러그인이 보기 헤더에 넣은 버튼(Commander 탭 위 버튼, Excalidraw 저장·미리보기 등)은 숨긴 보기 헤더에 있어 누를 수 없으므로,
+      // 지금 탭의 것을 대신 누르는 버튼을 묶음 맨 앞에 둔다 (사용자 요청)
+      const acts = this.actionProxies(tools, this.activeLeafOf(tabsEl));
+      const want = [...acts, mode, newTab, list].filter(Boolean);
       const kids = els(tools.children);
       if (kids.length !== want.length || kids.some((c, i) => c !== want[i])) want.forEach((el) => tools.appendChild(el));
     }
@@ -154,6 +167,7 @@ export const tabsMethods = {
     });
     for (const leaf of leaves) {
       this.setupTabMenu(leaf);
+      this.tabBookmark(leaf);
       // 뷰가 바뀌면 헤더도 새로 만들어지므로 매번 다시 숨긴다
       const v = leaf.view;
       if (v && v.moreOptionsButtonEl) v.moreOptionsButtonEl.addClass(HIDDEN);
@@ -163,6 +177,150 @@ export const tabsMethods = {
     this.keepDragBand(header);
 
     this.syncTabBar(tabsEl, nav, mode);
+  },
+
+  // 보기 헤더의 버튼 가운데 Obsidian 이 원래 두는 것(더 보기·읽기 모드·북마크, 탭 줄로 옮겨 쓴다)을 뺀 나머지마다 대리 버튼을 만든다.
+  // 대리는 원래 버튼을 복제하고, 누르면 원래 버튼을 누른다. 이름·기호가 바뀌면(Excalidraw 미리보기 전환 등) 새로 복제한다.
+  // 보기 헤더를 그대로 보이는 Kanban 과, 주소 줄을 따로 옮기는 웹 뷰어는 뺀다
+  actionProxies(this: GlassShelfPlugin, tools: HTMLElement, leaf: WorkspaceLeaf | null): HTMLElement[] {
+    const v: View | null = leaf ? leaf.view : null;
+    let src: HTMLElement[] = [];
+    const web = !!v && isWebView(v);
+    if (v && !web && v.getViewType() !== "kanban") {
+      const more = v.moreOptionsButtonEl;
+      const modeBtn = v.modeButtonEl;
+      src = els(v.containerEl.querySelectorAll<HTMLElement>(":scope > .view-header .view-actions > .view-action")).filter(
+        (b) => b !== more && b !== modeBtn && !b.classList.contains("mod-bookmark") && !b.classList.contains(HIDDEN)
+      );
+    }
+    // 지금 보기를 만든 플러그인의 버튼(다른 표시 클래스가 없는 것)을 앞에, 다른 플러그인이 꽂은 버튼(Commander 의 cmdr-… 등 자기 클래스가 붙는다)을
+    // 뒤에 둔다 (추정 기준, 사용자 요청). 자리가 되는 만큼(최대 ACT_MAX)만 바로 두고 나머지는 퍼즐 버튼 메뉴로 (사용자 요청)
+    const own = (b: HTMLElement) => !strs(b.classList).some((c) => c !== "clickable-icon" && c !== "view-action" && !/^(mod|is|has)-/.test(c));
+    const ordered = src.filter(own).concat(src.filter((b) => !own(b)));
+    const room = this.actionRoom(tools);
+    const fits = ordered.length <= room;
+    const shown = fits ? ordered : ordered.slice(0, Math.max(0, room - 1));
+    const rest = fits ? [] : ordered.slice(shown.length);
+    let more = tools.querySelector<HTMLElement>(":scope > .lg-act-more");
+    if (rest.length) {
+      if (!more) {
+        more = this.makeButton("lg-act-btn", "puzzle", tr("플러그인 버튼", "Plugin buttons"), (e, el: HTMLElement) => this.toggleMenu(el, () => this.openActionMenu(el)));
+        more.classList.add("lg-act-more", INJECTED);
+      }
+      ACT_LIST.set(more, rest);
+    } else if (more) {
+      more.remove();
+      more = null;
+    }
+    const keyOf = (b: HTMLElement) => `${b.getAttribute("aria-label") || ""}|${b.querySelector("svg")?.getAttribute("class") || ""}`;
+    const old = els(tools.querySelectorAll<HTMLElement>(":scope > .lg-act-btn:not(.lg-act-more)"));
+    const out = shown.map((b) => {
+      const key = keyOf(b);
+      const had = old.find((p) => ACT_SRC.get(p) === b && ACT_KEY.get(p) === key);
+      if (had) return had;
+      const p = b.cloneNode(true) as HTMLElement;
+      p.className = `clickable-icon lg-act-btn ${INJECTED}`;
+      p.addEventListener("click", () => {
+        b.click();
+        // 누른 뒤 이름·기호가 바뀌는 버튼을 따라간다
+        window.setTimeout(() => this.requestRefresh(), 60);
+      });
+      ACT_SRC.set(p, b);
+      ACT_KEY.set(p, key);
+      return p;
+    });
+    old.forEach((p) => { if (!out.includes(p)) p.remove(); });
+    return more ? out.concat(more) : out;
+  },
+
+  // 탭 줄 오른쪽 묶음에 더 둘 수 있는 버튼 수 (0~ACT_MAX). 가운데 알약(경로 알약이나 탭 줄, 최소 --lg-tab-w)이 가운데에 남도록
+  // 오른쪽 무리는 (탭 줄 폭 − 가운데 최소 폭) ÷ 2 까지 쓴다. 탭 줄 폭이 바뀌면 balanceTabs 가 다시 맞추게 한다
+  actionRoom(this: GlassShelfPlugin, tools: HTMLElement): number {
+    const header = tools.parentElement;
+    if (!header) return ACT_MAX;
+    const hs = getComputedStyle(header);
+    const ts = getComputedStyle(tools);
+    const w = header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight);
+    const center = parseFloat(hs.getPropertyValue("--lg-tab-w")) || 320;
+    const gap = parseFloat(hs.columnGap) || 0;
+    const inGap = parseFloat(ts.columnGap) || 0;
+    const btn = parseFloat(hs.getPropertyValue("--lg-inner")) || 28;
+    const per = btn + inGap;
+    const acts = tools.querySelectorAll<HTMLElement>(":scope > .lg-act-btn").length;
+    const base = tools.offsetWidth - acts * per;
+    const free = (w - center) / 2 - gap - base;
+    return Math.max(0, Math.min(ACT_MAX, Math.floor(free / per)));
+  },
+
+  // 퍼즐 버튼 메뉴: 묶인 버튼마다 항목 하나. 이름은 원래 버튼 이름의 첫 줄, 기호는 원래 버튼 기호. 누르면 원래 버튼을 누른다
+  openActionMenu(this: GlassShelfPlugin, anchor: HTMLElement) {
+    const doc = anchor.ownerDocument;
+    const menu = new Menu();
+    for (const b of ACT_LIST.get(anchor) || []) {
+      const icon = strs(b.querySelector("svg")?.classList || []).find((c) => c !== "svg-icon") || null;
+      menu.addItem((item) =>
+        item
+          .setTitle((b.getAttribute("aria-label") || "").split("\n")[0])
+          .setIcon(icon)
+          .onClick(() => {
+            b.click();
+            window.setTimeout(() => this.requestRefresh(), 60);
+          })
+      );
+    }
+    const r = anchor.getBoundingClientRect();
+    menu.setParentElement(anchor);
+    menu.showAtPosition({ x: r.right, y: layoutBottom(anchor) + MENU_DROP, left: true }, doc);
+  },
+
+  // 북마크한 문서: Obsidian 은 보기 헤더에 색칠된 북마크 기호(.view-action.mod-bookmarked)를 띄우는데 테마가 보기 헤더를 숨긴다.
+  // 경로 표시면 경로 알약 오른쪽 끝(웹 페이지는 새로고침 왼쪽)에 같은 기호를 두고(누르면 원래 기호를 누른다),
+  // 한 줄 보기면 탭의 X 자리에 둔다(탭에 마우스를 올리면 X, 테마). 북마크가 바뀌면 원래 기호의 클래스가 바뀌므로 지켜본다 (사용자 요청)
+  bookmarkOf(this: GlassShelfPlugin, view: View | null): HTMLElement | null {
+    const b = view ? view.containerEl.querySelector<HTMLElement>(":scope > .view-header .view-actions > .view-action.mod-bookmark") : null;
+    if (b) {
+      if (!this.bmWatched) this.bmWatched = new WeakSet();
+      if (!this.bmWatched.has(b)) {
+        this.bmWatched.add(b);
+        const win = b.ownerDocument.defaultView || window;
+        const obs = new win.MutationObserver(() => this.requestRefresh());
+        obs.observe(b, { attributes: true, attributeFilter: ["class"] });
+        this.observers.push(obs);
+      }
+    }
+    return b && b.classList.contains("mod-bookmarked") ? b : null;
+  },
+
+  tabBookmark(this: GlassShelfPlugin, leaf: WorkspaceLeaf) {
+    const head = leaf.tabHeaderEl;
+    const close = head && head.querySelector<HTMLElement>(".workspace-tab-header-inner-close-button");
+    if (!close) return;
+    const on = !!this.bookmarkOf(leaf.view);
+    head.classList.toggle("lg-bm", on);
+    let mark = close.querySelector<HTMLElement>(":scope > .lg-tab-bm");
+    if (on && !mark) {
+      mark = close.createSpan({ cls: ["lg-tab-bm", INJECTED] });
+      setIcon(mark, "bookmark");
+    } else if (!on && mark) mark.remove();
+  },
+
+  pathBookmark(this: GlassShelfPlugin, tabsEl: HTMLElement, view: View | null) {
+    const pill = tabsEl.querySelector<HTMLElement>(":scope > .workspace-tab-header-container > .lg-path > .lg-path-pill");
+    if (!pill) return;
+    const src = this.bookmarkOf(view);
+    let btn = pill.querySelector<HTMLElement>(":scope > .lg-path-bm");
+    // 웹 주소는 기호 폭만큼 왼쪽을 더 비워 가운데에 둔다 (테마 .lg-path-bm-on)
+    pill.classList.toggle("lg-path-bm-on", !!src);
+    if (!src) {
+      if (btn) btn.remove();
+      return;
+    }
+    if (!btn) btn = this.makeButton("lg-path-bm", "bookmark", "", () => BM_SRC.get(btn)?.click());
+    BM_SRC.set(btn, src);
+    setTooltip(btn, src.getAttribute("aria-label") || tr("북마크", "Bookmark"));
+    const reload = pill.querySelector<HTMLElement>(":scope > .view-header-reload-button");
+    if (reload) { if (btn.nextElementSibling !== reload) pill.insertBefore(btn, reload); }
+    else if (btn.parentElement !== pill || btn.nextElementSibling) pill.appendChild(btn);
   },
 
   // 창 끌기 띠 (CSS: .lg-drag-band, 탭 줄 첫 줄만 창을 잡는다). 끌기 영역은 문서 순서대로 겹쳐 뒤에 오는 버튼의 끌기 제외가
@@ -190,31 +348,50 @@ export const tabsMethods = {
     if (Platform.isPhone) return;
     const root = this.app.workspace.rootSplit;
     const first = !!root && root.containerEl.querySelector<HTMLElement>(".workspace-tabs") === tabsEl;
-    let rib = header.querySelector<HTMLElement>(":scope > .lg-rib-menu");
+    let rib = header.querySelector<HTMLElement>(":scope > .lg-rib-menu:not(.lg-junk)");
     if (!first) {
       if (rib) rib.remove();
-      return;
-    }
-    if (!rib) {
+    } else if (!rib) {
       rib = this.makeButton("lg-rib-menu", "layout-grid", tr("리본 메뉴", "Ribbon menu"), (e, el: HTMLElement) => this.toggleMenu(el, () => this.openRibbonMenu(el)));
       header.insertBefore(rib, nav);
       if (header.lgBalanceObs) header.lgBalanceObs.observe(rib);
     }
+    // 기타 버튼(짬통): 화면 어디에도 자리가 없는 버튼을 모은다. 지금은 오른쪽 리본(Obsidian 은 비워 두고 Commander 등이 버튼을 넣을 때만 쓴다,
+    // 왼쪽처럼 숨긴다, styles.css). 담을 버튼이 있을 때만 리본 메뉴 바로 오른쪽에 ··· 버튼으로 둔다 (사용자 요청)
+    let junk = header.querySelector<HTMLElement>(":scope > .lg-junk");
+    if (!first || this.ribbonButtons(header.ownerDocument, true).length === 0) {
+      if (junk) junk.remove();
+      return;
+    }
+    if (!junk) {
+      junk = this.makeButton("lg-rib-menu", "ellipsis", tr("기타 버튼", "Other buttons"), (e, el: HTMLElement) => this.toggleMenu(el, () => this.openRibbonMenu(el, true)));
+      junk.classList.add("lg-junk");
+      if (header.lgBalanceObs) header.lgBalanceObs.observe(junk);
+    }
+    if (rib && rib.nextElementSibling !== junk) rib.after(junk);
+  },
+
+  // 리본의 보이는 버튼들 (설정 외관 > 리본 메뉴에서 숨긴 것은 뺀다). 순서는 리본에 놓인 순서
+  ribbonButtons(this: GlassShelfPlugin, doc: Document, right: boolean): HTMLElement[] {
+    const win = doc.defaultView || window;
+    // 오른쪽 리본 객체(workspace.rightRibbon)는 지원 중단이라 숨김 설정을 읽지 않고 리본에 있는 버튼을 그대로 쓴다
+    const rb = right ? null : this.app.workspace.leftRibbon;
+    const hidden = new Set(((rb && rb.items) || []).filter((i) => i.hidden).map((i) => i.buttonEl));
+    const sel = right
+      ? ".workspace-ribbon:is(.mod-right, .mod-secondary) .side-dock-actions .side-dock-ribbon-action"
+      : ":is(.workspace-ribbon:is(.mod-left, .mod-primary), .workspace-drawer-ribbon) .side-dock-actions .side-dock-ribbon-action";
+    return els(doc.querySelectorAll<HTMLElement>(sel)).filter((b) => !hidden.has(b) && !b.hidden && win.getComputedStyle(b).display !== "none");
   },
 
   // 숨긴 왼쪽 리본의 버튼들을 메뉴로 보인다. 항목을 누르면 원래 리본 버튼을 대신 눌러 Obsidian·플러그인 동작을 그대로 쓴다
-  openRibbonMenu(this: GlassShelfPlugin, anchor: HTMLElement) {
+  // right: 오른쪽 리본 버튼(기타 버튼 메뉴)
+  openRibbonMenu(this: GlassShelfPlugin, anchor: HTMLElement, right = false) {
     const doc = anchor.ownerDocument;
     const win = doc.defaultView || window;
-    // 설정(외관 > 리본 메뉴)에서 숨긴 버튼은 뺀다. 순서는 리본에 놓인 순서(설정에서 바꾼 순서)를 따른다.
     // 메뉴를 열 때마다 새로 읽으므로 설정을 바꾸면 다음에 열 때 반영된다
-    const rb = this.app.workspace.leftRibbon;
-    const hidden = new Set(((rb && rb.items) || []).filter((i) => i.hidden).map((i) => i.buttonEl));
-    const buttons = els(doc.querySelectorAll<HTMLElement>(":is(.workspace-ribbon:is(.mod-left, .mod-primary), .workspace-drawer-ribbon) .side-dock-actions .side-dock-ribbon-action")).filter(
-      (b) => !hidden.has(b) && !b.hidden && win.getComputedStyle(b).display !== "none"
-    );
+    const buttons = this.ribbonButtons(doc, right);
     // 태블릿은 서랍 리본을 통째로 숨기므로(styles.css) 그 아래쪽 버튼(보관함·도움말·설정)도 메뉴 끝에 둔다
-    const extra = els(doc.querySelectorAll<HTMLElement>(".workspace-drawer-ribbon .side-dock-settings [aria-label]"));
+    const extra = right ? [] : els(doc.querySelectorAll<HTMLElement>(".workspace-drawer-ribbon .side-dock-settings [aria-label]"));
     const menu = new Menu();
     if (buttons.length === 0 && extra.length === 0) menu.addItem((item) => item.setTitle(tr("리본에 버튼이 없습니다", "No ribbon buttons")).setDisabled(true));
     let sep = buttons.length > 0;
@@ -323,6 +500,11 @@ export const tabsMethods = {
     const now = (header.ownerDocument.defaultView || window).performance.now();
     if (header.lgBalanceAt != null && now - header.lgBalanceAt < 4) return;
     header.lgBalanceAt = now;
+    // 탭 줄 폭이 바뀌면 보기 헤더 버튼을 몇 개 둘지 다시 정한다 (actionRoom)
+    if (Math.abs(header.clientWidth - (header.lgFitW || 0)) > 8) {
+      header.lgFitW = header.clientWidth;
+      this.requestRefresh();
+    }
     const hr = header.getBoundingClientRect();
     const cs = getComputedStyle(header);
     // 경로 표시를 켜면 탭 줄은 둘째 줄이고, 첫 줄 가운데에 둘 것은 경로 줄이다.
@@ -546,6 +728,14 @@ export const tabsMethods = {
     }
   },
 
+  // 보기의 버튼 줄 (Bases 툴바, Kanban 보드 버튼 줄). 없거나 숨어 있으면 null
+  viewBar(this: GlassShelfPlugin, view: View): HTMLElement | null {
+    const type = view.getViewType();
+    const sel = type === "bases" ? ":scope > .view-content > .bases-header" : type === "kanban" ? ":scope > .view-header" : null;
+    const el = sel ? view.containerEl.querySelector<HTMLElement>(sel) : null;
+    return el && el.getClientRects().length ? el : null;
+  },
+
   // 경로 알약이 첫 줄에 보이는지 (경로 표시를 켰거나 탭 쌓기 모드, 휴대폰 제외)
   pathShown(this: GlassShelfPlugin, tabsEl: HTMLElement) {
     return !Platform.isPhone && (tabsEl.classList.contains("mod-stacked") || !!this.settings.showPath);
@@ -581,6 +771,7 @@ export const tabsMethods = {
     this.webTab(tabsEl, leaf, false);
     this.updatePath(tabsEl, view);
     this.webTab(tabsEl, leaf, true);
+    this.pathBookmark(tabsEl, view);
     if (isWeb && !Platform.isPhone) this.webMouseWire(view);
     // 탭을 바꿀 때는 유리판 색을 바로 바꾼다. 색 전환(0.3초)을 그대로 두면 웹 탭으로 갈 때 편집창의 옅은 유리 너머로
     // 페이지가 또렷이 비치다가 페이지 색으로 차올라, 띠의 흐림이 늦게 들어오는 것처럼 보였다 (사용자 지적).
@@ -596,12 +787,16 @@ export const tabsMethods = {
     } else if (tabsEl.classList.contains("lg-web-tinted")) {
       tabsEl.classList.remove("lg-web-tinted");
       const h = tabsEl.querySelector<HTMLElement>(":scope > .workspace-tab-header-container");
-      if (h) { h.classList.remove("lg-glass-mix"); h.style.removeProperty("--lg-glass-t"); }
+      if (h) { h.classList.remove("lg-glass-mix", "lg-glass-dk"); h.style.removeProperty("--lg-glass-t"); }
     }
     if (switched) {
       void slab.offsetWidth;
       slab.classList.remove("lg-no-tr");
     }
+    // Bases 툴바·Kanban 보드 버튼 줄처럼 보기마다 쓰는 버튼 줄은 탭 줄 띠가 아래로 넓어진 것처럼 보이게 한다 (사용자 요청).
+    // 버튼 줄은 탭 줄보다 아래 층이라 띠를 늘리면 버튼을 덮으므로, 같은 띠를 버튼 줄 뒤(테마 ::before)에 따로 깔고 탭 줄 띠의 밑변은 숨긴다
+    const bar = view && !Platform.isMobile ? this.viewBar(view) : null;
+    tabsEl.classList.toggle("lg-slab-ext", !!bar);
 
     const isMd = view instanceof MarkdownView;
     // 숨길 때 바로 없애지 않고 폭을 접어서, 탭 길이가 부드럽게 바뀌게 한다

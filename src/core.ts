@@ -4,7 +4,7 @@ import { WEB_MINI_POLL_MS } from "./web-page";
 import { INJECTED, strs, THEME_NAME, tr } from "./util";
 import { DEFAULTS, OLD_DEVICE_KEYS, OBSIDIAN_PURPLE, migrateGlassLevel } from "./settings";
 import type { RawSettings } from "./settings";
-import { MINI_HOLD } from "./constants";
+import { MINI_HOLD, LIFT_KEEP_LIGHT, LIFT_BLACK, LIFT_KEEP_DARK, LIFT_WHITE, HOST_DOM } from "./constants";
 import { REFRACT_TARGETS, REFRACT_TARGETS_MOBILE, Refractor } from "./refract";
 import { GlassShelfSettingTab } from "./settings-tab";
 import type { GlassShelfPlugin } from "./host";
@@ -139,6 +139,11 @@ export const coreMethods = {
       for (const doc of this.docs) this.snapTabBars(doc);
     }));
     this.registerEvent(this.app.workspace.on("active-leaf-change", refresh));
+    // 파일 탐색기 문서 종류 기호: 열린 보기의 아이콘을 배운다
+    this.app.workspace.onLayoutReady(() => this.learnViewIcons());
+    // Obsidian 화면 요소가 그대로인지 (데스크톱만: 모바일은 리본·탭 줄 구조가 다르다)
+    if (Platform.isDesktop) this.app.workspace.onLayoutReady(() => window.setTimeout(() => this.checkHostDom(), 2000));
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.learnViewIcons()));
     this.registerEvent(this.app.workspace.on("file-open", refresh));
     this.registerEvent(this.app.workspace.on("css-change", refresh));
     this.registerEvent(this.app.workspace.on("css-change", () => {
@@ -338,24 +343,100 @@ export const coreMethods = {
     return this.folderLine;
   },
 
+  // 알약 유리의 밝기 곡선 층 (사용자 요청: 라이트에서 뒤의 검은색이 바탕색 쪽으로 더 많이 옮겨 가게).
+  // 채움(바탕색을 고르게 덮음)만으로는 어두운 것과 밝은 것이 같은 비율로 옅어진다. 그 앞에 밝기 곡선(SVG feComponentTransfer 표)을 걸어
+  // 라이트는 어두울수록 더 많이 끌어올리고, 다크는 밝을수록 더 많이 끌어내린다 (감마 곡선은 순수한 검정을 그대로 둬서 바꿨다). 테마는 --lg-lift-l·-d 를
+  // 알약 흐림 사슬(--lg-haze)에 넣는다. 플러그인이 필터를 넣은 문서에만 변수를 붙인다(없으면 비워 둬 필터 사슬이 깨지지 않게).
+  // 모바일은 알약 필터를 꺼 두는 것과 같은 까닭(매 프레임 뒤를 떠 옴)으로 뺀다. 애플 기기는 url() 필터를 못 써 원래 안 걸린다
+  applyLift(this: GlassShelfPlugin, doc: Document) {
+    const b = doc.body;
+    if (!b) return;
+    if (Platform.isMobile) {
+      b.style.removeProperty("--lg-lift-l");
+      b.style.removeProperty("--lg-lift-d");
+      return;
+    }
+    const NS = "http://www.w3.org/2000/svg";
+    if (!doc.getElementById("lg-lift-defs")) {
+      const host = doc.createElementNS(NS, "svg");
+      host.id = "lg-lift-defs";
+      host.setAttribute("class", INJECTED);
+      host.setAttribute("aria-hidden", "true");
+      host.setAttribute("color-interpolation-filters", "sRGB");
+      host.setCssProps({ position: "absolute", width: "0", height: "0" });
+      const defs = doc.createElementNS(NS, "defs");
+      // 바뀌지 않는 구간을 둔다 (사용자 요청: 옅은 것은 아예 안 바꾼다). 라이트: 밝기가 기준(keep) 이상이면 그대로, 그보다 어두우면
+      // 기준까지를 0~1 로 보고 keep − (keep − 검정 목표)·(1 − u)² 로 끌어올린다(검정 → 목표, 기준에서 이어짐). 다크는 거울: 기준 이하는 그대로,
+      // 그보다 밝으면 keep + (흰색 목표 − keep)·(1 − (1 − u)²) 로 끌어내린다. 표(table) 33칸
+      const curve = (light: boolean) => Array.from({ length: 33 }, (_, i) => {
+        const v = i / 32;
+        if (light) {
+          const k = LIFT_KEEP_LIGHT;
+          if (v >= k) return v.toFixed(4);
+          const u = v / k;
+          return (k - (k - LIFT_BLACK) * (1 - u) * (1 - u)).toFixed(4);
+        }
+        const k = LIFT_KEEP_DARK;
+        if (v <= k) return v.toFixed(4);
+        const u = (v - k) / (1 - k);
+        return (k + (LIFT_WHITE - k) * (1 - (1 - u) * (1 - u))).toFixed(4);
+      }).join(" ");
+      for (const [id, vals] of [["lg-lift-l", curve(true)], ["lg-lift-d", curve(false)]] as [string, string][]) {
+        const f = doc.createElementNS(NS, "filter");
+        f.id = id;
+        const t = doc.createElementNS(NS, "feComponentTransfer");
+        for (const ch of ["R", "G", "B"]) {
+          const fn = doc.createElementNS(NS, `feFunc${ch}`);
+          fn.setAttribute("type", "table");
+          fn.setAttribute("tableValues", vals);
+          t.appendChild(fn);
+        }
+        f.appendChild(t);
+        defs.appendChild(f);
+      }
+      host.appendChild(defs);
+      b.appendChild(host);
+      this.register(() => host.remove());
+    }
+    b.setCssProps({ "--lg-lift-l": "url(#lg-lift-l)", "--lg-lift-d": "url(#lg-lift-d)" });
+  },
+
+  // 플러그인이 기대는 Obsidian 화면 요소(HOST_DOM)가 없으면 콘솔에 남긴다. 업데이트로 이름이 바뀌면 기능이 소리 없이 빠지기 때문이다 (검토 지적)
+  checkHostDom(this: GlassShelfPlugin) {
+    if (this.unloaded) return;
+    const missing = HOST_DOM.filter((sel) => !document.querySelector(sel));
+    if (missing.length) console.warn("[glass-shelf] Obsidian 화면 요소를 찾지 못했습니다. 일부 기능이 동작하지 않을 수 있습니다:", missing.join(" | "));
+  },
+
   applyBodyState(this: GlassShelfPlugin, doc: Document) {
     const b = doc.body;
     if (!b) return;
     b.classList.add("lg-ui");
     b.classList.toggle("lg-tg-accent", this.settings.toggleColor === "accent");
-    // 유리 투명도: 1~5 는 바래는 비율(--lg-fade), 6~10 은 뿌연 채움(--lg-frost, 예전 뿌연 정도 1~5 와 같은 값)
+    // 유리 투명도: 1~5 는 바래는 비율(--lg-fade), 6~10 은 유리 뒤 흐림(--lg-pill-blur)
     const g = this.settings.glassLevel;
-    // 1단계 0.45 에서 5단계 0.8 까지 고르게 (사용자 요청). 0단계는 0
-    const f = g <= 0 ? 0 : 0.45 + ((Math.min(g, 5) - 1) * 0.35) / 4;
+    // 1단계 0.45 에서 5단계 0.7125 까지 고르게 (사용자 요청: 예전 4단계를 5단계로, 예전 5단계 0.8 은 뺐다). 0단계는 0
+    // 6~10 은 채움을 0.55 에서 0.6 으로 다시 낮추고 흐림을 건다 (예전 7단계를 10단계로, 사용자 요청) (사용자 지적: 5단계 채움 0.8 위에 흐림을 더하니
+    // 뒤가 이미 거의 덮여 흐림이 보이지 않았다). 뒤가 비치되 흐린 젖빛 유리가 된다
+    const f = g <= 0 ? 0 : g <= 5 ? 0.45 + ((g - 1) * 0.2625) / 4 : 0.5375 + (g - 5) * 0.0125;
     b.style.setProperty("--lg-fade", String(+f.toFixed(4)));
-    b.style.setProperty("--lg-frost", String((Math.max(0, g - 5) / 10) * 0.3));
-    b.style.setProperty("--lg-hover-k", this.settings.hoverLarge ? "1" : "0");
+    // 6~10 은 뿌연 채움 대신 알약·버튼 유리 뒤 흐림 (사용자 요청): 6 = 4px … 10 = 8px.
+    // 5 이하는 흐림을 비워 둔다(테마 기본: 데스크톱·안드로이드는 흐림 없음, iOS 는 테마가 정한 흐림)
+    b.setCssProps({ "--lg-frost": "0" });
+    if (g > 5) b.style.setProperty("--lg-pill-blur", `blur(${g - 2}px)`);
+    else b.style.removeProperty("--lg-pill-blur");
+    // 메뉴창 흐림도 6~10 에서 알약과 같이 올린다 (사용자 요청, 5 이하는 테마 기본 3px)
+    if (g > 5) b.style.setProperty("--lg-menu-blur", `${g - 2}px`);
+    else b.style.removeProperty("--lg-menu-blur");
     b.classList.toggle("lg-show-path", !!this.settings.showPath);
     b.classList.toggle("lg-web-under", !!this.settings.webTint && !Platform.isPhone);
     b.classList.toggle("lg-mini-bar", !!this.settings.miniBar);
     b.classList.toggle("lg-pop-opaque", !!this.settings.popupOpaque);
+    // 컴팩트 모드를 이 기기에서 쓰는지 (테마: 메뉴 호버를 미끄러지는 판 대신 강조색으로)
+    b.classList.toggle("lg-rm", this.reduceMotion());
     b.classList.toggle("lg-wc-compact", !!this.settings.compactWindowControls);
     this.applyDevicePx(doc);
+    this.applyLift(doc);
     // 틴트: 유리 위에 색을 옅게 한 겹 (CSS: body.lg-tinted)
     const s = this.settings;
     const color = s.tint === "accent" ? "var(--interactive-accent)" : s.tint === "obsidian" ? OBSIDIAN_PURPLE : s.tintColor;
@@ -417,6 +498,13 @@ export const coreMethods = {
       doc.querySelectorAll<HTMLElement>(".lg-kb-searching").forEach((el: HTMLElement) => el.classList.remove("lg-kb-searching"));
       doc.querySelectorAll<HTMLElement>(".lg-kb-search-btn").forEach((el: HTMLElement) => el.classList.remove("lg-kb-search-btn"));
       doc.querySelectorAll<HTMLElement>(".lg-dashed").forEach((el: HTMLElement) => el.classList.remove("lg-dashed"));
+      if (doc.body) doc.body.classList.remove("lg-menu-open");
+      doc.querySelectorAll<HTMLElement>(".nav-file-title[data-lg-type], .nav-file-title.lg-glyph").forEach((el: HTMLElement) => {
+        delete el.dataset.lgType;
+        el.classList.remove("lg-glyph");
+        el.style.removeProperty("--lg-glyph");
+      });
+      if (doc.body) for (const p of [...doc.body.style].filter((n) => n.startsWith("--lg-glyph-v-"))) doc.body.style.removeProperty(p);
       doc.querySelectorAll<HTMLElement>(".bases-toolbar .lg-on").forEach((el: HTMLElement) => el.classList.remove("lg-on"));
       doc.querySelectorAll<HTMLElement>(".lg-tab-tools").forEach((g) => {
         while (g.firstChild) g.parentElement.insertBefore(g.firstChild, g);

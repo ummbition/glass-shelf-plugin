@@ -1,7 +1,6 @@
 import type { ItemView } from "obsidian";
-import type { MorphKid } from "./morph";
-import { INJECTED, els, unitVec, isEl, newEl } from "./util";
-import { MORPH_DASH, NAV_SEARCH_MAX, EASE, RIPPLE_K, RIPPLE_HOLD, MINI_EASE, KB_GROUP_ICONS, KB_LANE_MS, KB_DASH_MS } from "./constants";
+import { INJECTED, els, isEl, newEl } from "./util";
+import { NAV_SEARCH_MAX, NAV_SEARCH_MIN, EASE, RIPPLE_K, RIPPLE_HOLD, MINI_EASE, KB_GROUP_ICONS, KB_LANE_MS } from "./constants";
 import { PRESS_WHITE, PRESS_IMG } from "./refract";
 import type { GlassShelfPlugin } from "./host";
 
@@ -116,6 +115,12 @@ export const kanbanMethods = {
     }
     // 그룹 표시: 툴바가 다시 그려지면(보기 바꿈·설정 바뀜) 다시 본다
     const bar = content.querySelector<HTMLElement>(".bases-toolbar");
+    // 툴바 폭이 바뀌면 검색 칸이 툴바 안에 들어가는지 다시 잰다 (basesSearch)
+    if (bar && !bar.lgSearchRo) {
+      bar.lgSearchRo = new win.ResizeObserver(() => this.basesSearch(root, content));
+      bar.lgSearchRo.observe(bar);
+      this.observers.push(bar.lgSearchRo);
+    }
     if (bar && !this.kbWatched.has(bar)) {
       const obs = new win.MutationObserver(() => this.basesGroupMark(view));
       obs.observe(bar, { childList: true, subtree: true, characterData: true });
@@ -143,12 +148,25 @@ export const kanbanMethods = {
     if (btn.classList.contains("lg-on") !== on) btn.classList.toggle("lg-on", on);
   },
 
+  // 검색이 켜져 있으면 검색 칸을 넓어진 검색 버튼 위로 옮긴다(테마 .lg-kb-searching). 툴바에 남는 폭이 NAV_SEARCH_MIN 보다 적으면
+  // 옮기지 않고 Obsidian 원래 자리(툴바 아래 줄)에 둔다 (사용자 요청, 패널 검색 칸과 같은 방식). 남는 폭만큼 넓히되 NAV_SEARCH_MAX 까지
   basesSearch(this: GlassShelfPlugin, root: HTMLElement, content: HTMLElement) {
     const row = content.querySelector<HTMLElement>(":scope > .bases-search-row");
     const btn = content.querySelector<HTMLElement>(".bases-toolbar-search > .lg-kb-search-btn");
-    const on = !!(row && btn && btn.classList.contains("is-active") && row.style.display !== "none");
+    let on = !!(row && btn && btn.classList.contains("is-active") && row.style.display !== "none");
+    const bar = btn && btn.closest<HTMLElement>(".bases-toolbar");
+    const item = btn && btn.parentElement;
+    if (on && bar && item) {
+      // 검색 칸을 뺀 툴바 칸들의 배치 폭 + 사이 간격을 빼고 남는 폭 (넓어지는 중인 검색 칸 폭에 흔들리지 않는다)
+      const gap = parseFloat(getComputedStyle(bar).columnGap) || 0;
+      const others = els(bar.children).filter((x): x is HTMLElement => x !== item && x.instanceOf(HTMLElement) && x.offsetWidth > 0);
+      const free = bar.clientWidth - others.reduce((sum, x) => sum + x.offsetWidth, 0) - gap * others.length;
+      if (free >= NAV_SEARCH_MIN) root.style.setProperty("--lg-kb-search-w", `${Math.min(NAV_SEARCH_MAX, free)}px`);
+      else on = false;
+    }
+    if (!on) root.style.removeProperty("--lg-kb-search-w");
     if (root.classList.contains("lg-kb-searching") !== on) root.classList.toggle("lg-kb-searching", on);
-    if (!on) return;
+    if (!on || !row || !btn) return;
     const op = row.offsetParent || content;
     const pr = op.getBoundingClientRect();
     const br = btn.getBoundingClientRect();
@@ -235,8 +253,8 @@ export const kanbanMethods = {
     }
   },
 
-  // 목록 추가 창 (보드 위 + 버튼): 보관함 전환 메뉴와 같은 애니메이션 (사용자 요청). 버튼 묶음 알약이 창의 오른쪽 위 꼭짓점에 오고,
-  // 알약은 좌우로 좁아져 원이 되며 창 가운데로 돌진해 사라지고 그 지점에서 창이 넓어져 나온다. 닫히면 반대로.
+  // 목록 추가 창 (보드 위 + 버튼): 화살표 없는 일반 메뉴창처럼 버튼 아래에 연다 (사용자 요청: 드롭다운처럼 버튼에서 넓어지지 않게.
+  // 예전엔 + 버튼을 가리키는 말풍선 화살표를 달았는데, 애플 가이드라인도 팝오버라고 늘 화살표를 달지는 않아 뺐다).
   // 창은 보드 안에 그려지는데 보드(contain)와 보기 내용(스크롤 상자)이 밖을 잘라, 여는 동안 보드의 제한을 푼다(테마 .lg-kb-laneform)
   kanbanLaneForm(this: GlassShelfPlugin, root: HTMLElement, ms: MutationRecord[]) {
     const sel = ".kanban-plugin__lane-form-wrapper";
@@ -255,90 +273,60 @@ export const kanbanMethods = {
 
   laneFormOpen(this: GlassShelfPlugin, root: HTMLElement, form: HTMLElement) {
     try {
-      // 보관함 전환 메뉴와 똑같이: + 가 든 버튼 묶음 알약이 좌우로 좁아져 원이 되며 창 가운데로 돌진해 사라지고,
-      // 그 지점에서 창이 넓어져 나온다 (사용자 요청)
-      const src = root.querySelector<HTMLElement>(".view-actions > .lg-kb-group");
-      if (!src) return;
+      const group = root.querySelector<HTMLElement>(".view-actions > .lg-kb-group");
+      const btn = (group && group.querySelector<HTMLElement>(".clickable-icon.kanban-plugin__ignore-click-outside")) || group;
+      if (!group || !btn) return;
       root.classList.add("lg-kb-laneform");
-      const win = root.ownerDocument.defaultView || window;
       const op = form.offsetParent || root;
       const o = op.getBoundingClientRect();
       const ox = o.left + op.clientLeft;
       const oy = o.top + op.clientTop;
-      const b = src.getBoundingClientRect();
-      const W = form.offsetWidth;
-      const H = form.offsetHeight;
-      const left = b.right - W - ox;
-      const top = b.top - oy;
-      form.style.left = `${left}px`;
-      form.style.top = `${top}px`;
-      form.classList.add("lg-right-auto");
-      const mr = parseFloat(win.getComputedStyle(form).borderTopLeftRadius) || 22;
-      const full = { left, top, width: W, height: H, radius: mr };
-      const bx = b.left + b.width / 2 - ox;
-      const by = b.top + b.height / 2 - oy;
-      const { ux, uy } = unitVec(bx, by, left + W / 2, top + H / 2);
-      const dot = this.dotAt(bx + ux * MORPH_DASH, by + uy * MORPH_DASH, b.height);
-      // Kanban 이 창(안의 편집기)을 만들고 포커스를 주느라 화면이 잠깐 멈춘다. 애니메이션이 그 멈춤에 끊기지 않게
-      // 창을 숨겨 두고 두 프레임 뒤에 시작한다 (사용자 요청)
-      form.classList.add("lg-invisible");
-      const go = () => {
-        form.classList.remove("lg-invisible");
-        if (!form.isConnected) return;
-        form.lgMorph = { ux, uy, dot, src };
-        if (src.lgHide) src.lgHide.cancel();
-        src.lgHide = this.dashOut(src, ux, uy);
-        // 창이 작은 동안 안의 내용이 따라 줄지 않게 크기를 잠시 고정하고, 창 밖으로 나온 부분은 자른다
-        const kids = els(form.children).map((el): MorphKid => ({ el, anchor: "right" }));
-        kids.forEach((k) => this.pinSize(k.el));
-        form.classList.add("lg-clip");
-        // 알약이 좁아지는 모습이 창에 가리지 않게, 거의 다 줄어든 뒤에 창이 나온다
-        const grow = this.growBox(form, kids, dot, full, KB_DASH_MS * 0.6);
-        grow.onfinish = grow.oncancel = () => {
-          kids.forEach((k) => this.unpinSize(k.el));
-          form.classList.remove("lg-clip");
-        };
-        kids.forEach((k) => k.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, delay: 120, easing: "ease-out", fill: "backwards" }));
-      };
-      win.requestAnimationFrame(() => win.requestAnimationFrame(go));
+      const g = group.getBoundingClientRect();
+      const b = btn.getBoundingClientRect();
+      // 오른쪽 끝은 버튼 묶음 오른쪽 끝, 위 끝은 버튼 아래 끝 + 4px
+      const left = g.right - form.offsetWidth - ox;
+      const top = b.bottom + 4 - oy;
+      form.setCssProps({ left: `${left}px`, top: `${top}px` });
+      form.style.transformOrigin = `${(b.left + b.width / 2 - ox - left).toFixed(1)}px -4px`;
+      form.classList.add("lg-right-auto", "lg-kb-pop");
+      // 다른 메뉴처럼 버튼 가운데 아래에서 커지며 나타난다. 컴팩트 모드면 바로 뜬다
+      if (!this.reduceMotion()) {
+        form.animate(
+          [
+            { opacity: 0, transform: "scale(0.2)", easing: EASE.burst },
+            { offset: 0.42, opacity: 1, transform: "scale(1.02)", easing: EASE.ret },
+            { opacity: 1, transform: "scale(1)" },
+          ],
+          { duration: 280 }
+        );
+      }
     } catch (err) {
       console.error("[glass-shelf] lane-form", err);
     }
   },
 
   laneFormClose(this: GlassShelfPlugin, root: HTMLElement, form: HTMLElement) {
-    const mo = form.lgMorph;
-    form.lgMorph = null;
     if (!root.querySelector<HTMLElement>(".kanban-plugin__lane-form-wrapper")) root.classList.remove("lg-kb-laneform");
-    if (!mo) return;
-    const { ux, uy, dot, src } = mo;
+    if (this.reduceMotion() || !root.isConnected || !form.classList.contains("lg-kb-pop")) return;
     try {
-      if (!root.isConnected || !src.isConnected) return;
-      // 사본은 보드 밖(보기 전체)에 띄운다: 위치 기준이 같고(.lg-kb-laneform 동안 보드는 위치 기준이 아니다) Kanban 이 그리는 곳을 건드리지 않는다
+      // 사본이 버튼 쪽으로 줄며 흐려진다 (다른 메뉴가 닫히는 것과 같다)
       const ghost = form.cloneNode(true) as HTMLElement;
       ghost.classList.add("lg-kb-ghost");
       root.appendChild(ghost);
       const win = root.ownerDocument.defaultView || window;
-      win.setTimeout(() => ghost.remove(), 900);
-      const mr = parseFloat(win.getComputedStyle(ghost).borderTopLeftRadius) || 22;
-      const full = { left: ghost.offsetLeft, top: ghost.offsetTop, width: ghost.offsetWidth, height: ghost.offsetHeight, radius: mr };
-      const kids = els(ghost.children).map((el): MorphKid => ({ el, anchor: "right" }));
-      kids.forEach((k) => {
-        this.pinSize(k.el);
-        k.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 60, easing: "ease-in", fill: "forwards" });
-      });
-      ghost.classList.add("lg-clip");
-      this.shrinkBox(ghost, kids, full, dot).onfinish = () => ghost.remove();
+      win.setTimeout(() => ghost.remove(), 600);
+      ghost.animate(
+        [
+          { opacity: 1, transform: "scale(1)" },
+          { opacity: 0, transform: "scale(0.5)" },
+        ],
+        { duration: 110, easing: EASE.exit, fill: "forwards" }
+      ).onfinish = () => ghost.remove();
     } catch (err) {
       console.error("[glass-shelf] lane-form-close", err);
-    } finally {
-      if (src.lgHide) {
-        src.lgHide.cancel();
-        src.lgHide = null;
-      }
-      if (src.isConnected) this.dashBack(src, ux, uy, 110);
     }
   },
+
 
   // 목록 접기·펴기: Kanban 은 접으면 카드 줄을 지우고 펴면 다시 그린다. 누를 때 크기를 재 두고, 다시 그려지면
   // 예전 크기에서 새 크기로 움직인다. 펼 때는 다시 나온 카드 줄이 서서히 나타난다

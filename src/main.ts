@@ -3,6 +3,8 @@ import { Plugin as ObsidianPlugin } from "obsidian";
 import type { GlassShelfPlugin } from "./host";
 import { coreMethods } from "./core";
 import { eventsMethods } from "./events";
+import { eventsPressMethods } from "./events-press";
+import { eventsMenusMethods } from "./events-menus";
 import { pressMethods } from "./press";
 import { kanbanMethods } from "./kanban";
 import { menusMethods } from "./menus";
@@ -33,4 +35,4 @@ export default class GlassShelfCompanion extends Base {
 }
 
 // 기능별 메서드 묶음을 붙인다 (각 파일의 메서드는 this 가 이 플러그인이다)
-Object.assign(GlassShelfCompanion.prototype, coreMethods, eventsMethods, pressMethods, kanbanMethods, menusMethods, morphMethods, foldersMethods, sidebarMethods, tabsMethods, webMethods);
+Object.assign(GlassShelfCompanion.prototype, coreMethods, eventsMethods, eventsPressMethods, eventsMenusMethods, pressMethods, kanbanMethods, menusMethods, morphMethods, foldersMethods, sidebarMethods, tabsMethods, webMethods);

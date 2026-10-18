@@ -66,17 +66,17 @@ export const TAB_GROW_MS = 90; // 도착 전 커지는 시간
 export const TAB_GROW_FWD = 9; // 도착 전 커질 때 폭에 더하는 px. 도착 쪽(앞)으로 늘었다가 작아지는 동안 선택 알약 끝으로 돌아온다 (조율기 값)
 export const MOBILE_TAB_GROW_FWD = 0; // 모바일 서랍은 도착 쪽으로 튀어나가지 않는다 (사용자 요청)
 export const TAB_LENS_H2 = 1.2; // 커졌을 때 높이 (컨테이너 알약 높이 대비)
-export const TAB_SHRINK_MS = 280; // 작아짐 (렌즈 → 선택 알약)
+export const TAB_SHRINK_MS = 280; // 작아짐 (렌즈 → 선택 알약). 200 으로 줄였다가 되돌림 (사용자 지적: 늘리라고 한 건 원상복구 구간만)
 export const TAB_SQUASH = 0.5; // 기본 탭(33.8px) 기준 약 17px (0.414 에서 사용자 요청으로 조금 더).  반대쪽 끝이 밀려와 폭이 눌리는 정도
 export const TAB_SQUASH_AT = 0.25; // 작아짐 구간에서 가장 눌리는 지점 (0~1)
-export const TAB_SQUASH_HOLD = 0.25; // 가장 눌린 채 머무는 길이 (작아짐 구간 대비, 사용자 요청)
+export const TAB_SQUASH_HOLD = 0; // 가장 눌린 채 머무는 길이 (작아짐 구간 대비). 0.25 → 0 (사용자 요청: 머무름 없이 바로 펴진다)
 export const TAB_STRETCH = 0.08; // 작아짐이 끝날 때 폭이 늘어난 정도
 export const TAB_STRETCH_H = 0.08; // 그때 높이가 낮아진 정도
 export const TAB_SQUASH_SMALL = 0.7; // 탭 줄 넓게·이름 표시를 둘 다 끈 탭 줄의 찌그러짐 배율 (사용자 요청으로 줄임)
 // 모바일 서랍 보기 전환: 이동 중 높이는 선택 알약 그대로, 도착 전 선택 알약의 이 배율로 커지고, 눌림은 이만큼 (사용자 요청)
 export const MOBILE_TAB_GROW = 1.1;
 export const MOBILE_TAB_SQUASH = 0.1;
-export const TAB_RESTORE_MS = 600; // 원상복구
+export const TAB_RESTORE_MS = 300; // 원상복구: 찌그러짐이 다 끝난 뒤 원래 모양으로 돌아오는 시간 (고르게 바뀜, 데스크톱·모바일 같다). 800 → 600 → 400 → 350 → 320 → 300 (사용자 요청)
 // 폭 쪽 변화(렌즈 폭·커짐·눌림·늘어남)는 탭 폭의 비율이 아니라 기본 탭(높이 × 이 비율, 이름 없는 34px 탭) 기준의 절대값(px)이다.
 // 이름·넓게로 탭이 길어져도 같은 만큼만 변한다 (사용자 요청: 비율이면 긴 탭에서 너무 튄다)
 export const TAB_REF_RATIO = 1.3;
@@ -369,8 +369,10 @@ export class SegmentLens {
     const R = r.height * TAB_REF_RATIO;
     const w1 = r.width + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? r.height : Hc;
-    const h2 = this.keepH ? r.height * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
-    const w2 = r.width + h2 * TAB_REF_RATIO - R + (this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD);
+    // 컴팩트 모드면 도착 전에 위아래로 커지지 않는다 (아래 tick 과 같게). 폭은 그대로 커진다
+    const hGrow = this.keepH ? r.height * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
+    const h2 = !this.keepH && this.plugin.reduceMotion() ? h1 : hGrow;
+    const w2 = r.width + hGrow * TAB_REF_RATIO - R + (this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD);
     // 출발 알약 → 렌즈 → 커진 렌즈 → 선택 알약
     const legs = [[r.width, r.height, w1, h1], [w1, h1, w2, h2], [w2, h2, r.width, r.height]];
     const sizes: [number, number][] = [];
@@ -452,7 +454,9 @@ export class SegmentLens {
     const R = b.h * TAB_REF_RATIO;
     const w1 = b.w + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? b.h : Hc;
-    const h2 = this.keepH ? b.h * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
+    // 컴팩트 모드(설정)면 도착 직전에 위아래로 커지지 않는다 (사용자 요청). 양옆으로 커지는 것은 그대로 (사용자 요청으로 되돌림)
+    const hGrow = this.keepH ? b.h * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
+    const h2 = !this.keepH && this.plugin.reduceMotion() ? h1 : hGrow;
     // 탭 줄 넓게와 이름 표시를 둘 다 끈 작은 탭 줄에서는 찌그러짐(눌림·늘어남)을 TAB_SQUASH_SMALL 배로 줄인다 (사용자 요청).
     // 크기 변화와 이동은 그대로
     const tabsEl = this.header.closest<HTMLElement>(".workspace-tabs");
@@ -462,7 +466,7 @@ export class SegmentLens {
     const ST = TAB_STRETCH * f;
     const STH = TAB_STRETCH_H * f;
     const FWD = this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD;
-    const w2 = b.w + h2 * TAB_REF_RATIO - R + FWD;
+    const w2 = b.w + hGrow * TAB_REF_RATIO - R + FWD;
     // 도착 쪽 끝: 선택 알약의 그쪽 끝. 도착하는 순간부터 끝까지 여기 선다
     // 앞으로 더한 폭(TAB_GROW_FWD)만큼 나갔다가 작아지는 동안 돌아온다
     const lead = b.cx + (dir * b.w) / 2 + dir * FWD * (1 - smooth(clamp01((t - D) / TAB_SHRINK_MS)));
@@ -522,7 +526,8 @@ export class SegmentLens {
     } else if (t < D + TAB_SHRINK_MS + TAB_RESTORE_MS) {
       // 4) 원상복구: 길고 낮은 찌그러짐이 선택 알약 비율로
       const x = (t - D - TAB_SHRINK_MS) / TAB_RESTORE_MS;
-      const k = 1 - Math.pow(1 - x, 3);
+      // 앞부분에 몰아 바뀌던 감속 곡선(1 - (1 - x)^3) 대신 고르게 바뀌어 구간 끝까지 천천히 돌아온다 (사용자 요청)
+      const k = smooth(x);
       bw = b.w;
       bh = b.h;
       g = 0;

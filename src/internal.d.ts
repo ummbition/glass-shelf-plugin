@@ -40,6 +40,7 @@ export interface LgState {
   // 탭 줄
   lgBalanceObs?: ResizeObserver | null;
   lgBalanceAt?: number;
+  lgFitW?: number;
   lgBandObs?: MutationObserver;
   lgMiniHold?: number;
   lgMiniLeaf?: WorkspaceLeaf;
@@ -64,7 +65,14 @@ export interface LgState {
   lgTintBusy?: boolean;
   // 패널 머리 줄 (넓게 모드)
   lgSrc?: HTMLElement;
-  lgSrcFind?: () => HTMLElement | null;
+  lgArrowRo?: ResizeObserver | null;
+  lgArrowSvg?: SVGSVGElement;
+  lgArrowHi?: SVGSVGElement;
+  lgHiRo?: ResizeObserver | null;
+  lgArrowAt?: { ax: number; down: boolean } | null;
+  lgHome?: HTMLElement | null;
+  lgArrowMo?: MutationObserver | null;
+  lgSearchRo?: ResizeObserver;
   lgIcon?: string;
   lgClickAt?: number;
   lgWasOpen?: boolean;
@@ -111,6 +119,7 @@ export interface LgState {
   lgWcSizes?: { W: number; H: number; w: number; h: number };
   // 아이콘 버튼 호버 유리 요소 두 개 (번갈아 쓴다, hoverGlassInto)
   lgHoverPool?: HTMLElement[];
+  lgGlassMo?: MutationObserver | null;
   // 칸반
   lgKbForm?: boolean;
   lgMorph?: { ux: number; uy: number; dot: Box; src?: HTMLElement; anchor?: "left" | "right" } | null;

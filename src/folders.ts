@@ -1,10 +1,26 @@
 import type { Palette, RawSettings } from "./settings";
-import { Notice, TFolder, Platform } from "obsidian";
+import { Notice, TFolder, Platform, FileView, getIcon } from "obsidian";
 import { tr, INJECTED, els } from "./util";
 import { resolveRgb, folderIconUrl, FOLDER_PALETTE, hexToRgb, fileIconUrl } from "./color";
 import { FolderColorModal } from "./folder-modal";
 import { STRIPE_FOLLOW_MS } from "./constants";
 import type { GlassShelfPlugin } from "./host";
+
+// 보기 이름을 CSS 변수 이름에 쓸 수 있게 (영문 소문자·숫자·- 만)
+const glyphKey = (type: string) => type.toLowerCase().replace(/[^a-z0-9-]/g, "_");
+
+// 문서 종류 기호 색: 색 없는 폴더는 반투명 검정, 색 지정 폴더는 그 색을 어둡게 한 색 (사용자 요청: 반투명만으로는 폴더 색으로 안 보였다)
+const GLYPH_INK = "rgb(0 0 0 / 0.4)";
+const glyphInk = (rgb: number[]) => `rgb(${rgb.map((v) => Math.round(v * 0.72)).join(" ")} / 0.92)`;
+const glyphUrl = (body: string) =>
+  `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='-0.3 -0.3 14.6 17.6'>${body}</svg>`)}")`;
+// 테마의 기본 기호(theme.css --lg-glyph-*)와 같은 그림. 색 지정 폴더 안에서 그 색으로 다시 그린다
+const GLYPH_FALLBACK: Record<string, (ink: string) => string> = {
+  base: (c) => `<rect x='2.8' y='7.3' width='8.4' height='6.9' rx='1.3' fill='none' stroke='${c}' stroke-width='1.3'/><path d='M2.8 10.1h8.4M6.3 10.1v4.1' fill='none' stroke='${c}' stroke-width='1.3' stroke-linecap='round'/>`,
+  canvas: (c) => [[2.8, 7.3, 3.5, 6.9], [7.7, 7.3, 3.5, 2.8], [7.7, 11.5, 3.5, 2.7]].map(([x, y, w, h]) => `<rect x='${x}' y='${y}' width='${w}' height='${h}' rx='0.9' fill='none' stroke='${c}' stroke-width='1.3'/>`).join(""),
+  kanban: (c) => [[2.6, 7.2], [5.75, 4.6], [8.9, 5.9]].map(([x, h]) => `<rect x='${x}' y='7.2' width='2.5' height='${h}' rx='0.8' fill='${c}'/>`).join(""),
+  draw: (c) => `<path d='M3.4 14l.6-2.6 5.6-5.6 2 2-5.6 5.6z M8.3 7.1l2 2' fill='none' stroke='${c}' stroke-width='1.3' stroke-linejoin='round' stroke-linecap='round'/>`,
+};
 
 export const foldersMethods = {
   // 폴더 기호 색 (CSS: --lg-folder-icon). 파랑은 테마의 기호를 그대로 쓴다.
@@ -183,6 +199,8 @@ export const foldersMethods = {
             if (rgb) {
               f.style.setProperty("--lg-folder-icon", folderIconUrl(rgb));
               f.style.setProperty("--lg-file-icon", fileIconUrl(rgb));
+              // 안의 문서 종류 기호도 폴더 색으로 (기본 기호 + 배운 보기 아이콘)
+              f.setCssProps(this.glyphProps(glyphInk(rgb)));
             }
           } else if (was) {
             delete f.dataset.lgFc;
@@ -190,8 +208,10 @@ export const foldersMethods = {
             f.style.removeProperty("--lg-fc");
             f.style.removeProperty("--lg-folder-icon");
             f.style.removeProperty("--lg-file-icon");
+            for (const p of [...f.style].filter((n) => n.startsWith("--lg-glyph-"))) f.style.removeProperty(p);
           }
         }
+        this.applyGlyphs(doc, list);
         this.applyStripes(list);
       }
     }
@@ -205,6 +225,122 @@ export const foldersMethods = {
   // 막대는 줄마다 하나씩 붙여 두고(stripeBars) 그 줄을 따라 움직인다. 열리고 닫히는 폴더 안쪽 줄은 그 폴더의 보이는 영역으로 자른다.
   // 폭은 목록 안쪽 폭에서 맨 위 단계 줄의 좌우 여백을 뺀 값 (스크롤바가 생겨도 무늬 폭이 줄 폭을 따라 들쭉날쭉하지 않게).
   // 설정에서 끄면(fileStripes) 층을 비운다
+  // 문서 종류 기호 (사용자 요청): 문서마다 어느 보기가 여는지 알아내 그 보기의 아이콘을 종이 기호 안에 그린다 (테마 .lg-glyph).
+  // 종류는 Obsidian 의 확장자 → 보기 목록으로 알고, md 문서는 '<보기 이름>-plugin' 속성으로 안다 (Kanban 의 kanban-plugin 처럼 플러그인들이 쓰는 관례).
+  // 아이콘은 그 보기가 열릴 때 배운 것(learnViewIcons)을 쓴다. 아직 모르는 종류는 data-lg-type 만 달아 테마의 기본 기호(베이스·캔버스·칸반·Excalidraw)가 대신한다
+  applyGlyphs(this: GlassShelfPlugin, doc: Document, list: HTMLElement) {
+    const reg = (this.app as unknown as { viewRegistry?: { typeByExtension?: Record<string, string>; viewByType?: Record<string, unknown> } }).viewRegistry;
+    const byExt = (reg && reg.typeByExtension) || {};
+    const byType = (reg && reg.viewByType) || {};
+    const urls = this.glyphUrlMap();
+    this.glyphBodyVars(doc, urls);
+    for (const title of list.querySelectorAll<HTMLElement>(".nav-file-title[data-path]")) {
+      const path = title.dataset.path;
+      const dot = path.lastIndexOf(".");
+      let type = dot > path.lastIndexOf("/") ? byExt[path.slice(dot + 1).toLowerCase()] : undefined;
+      if (type === "markdown") {
+        type = undefined;
+        const fm = this.app.metadataCache.getCache(path)?.frontmatter;
+        if (fm) {
+          for (const key of Object.keys(fm)) {
+            const t = key.endsWith("-plugin") ? key.slice(0, -7) : "";
+            if (t && t !== "markdown" && t in byType) {
+              type = t;
+              break;
+            }
+          }
+        }
+      }
+      if (type) title.dataset.lgType = type;
+      else if (title.dataset.lgType) delete title.dataset.lgType;
+      const has = !!type && urls.has(type);
+      title.classList.toggle("lg-glyph", has);
+      if (has) title.style.setProperty("--lg-glyph", `var(--lg-glyph-v-${glyphKey(type)})`);
+      else title.style.removeProperty("--lg-glyph");
+    }
+  },
+
+  // 배운 아이콘마다 종이 안에 그릴 그림(data URL). 아이콘은 Obsidian 아이콘(getIcon)을 받아 반투명 검정으로 칠한다:
+  // 폴더 색으로 물든 종이 위에서는 그 색의 진한 쪽으로 보인다 (사용자 요청)
+  glyphUrlMap(this: GlassShelfPlugin, ink = GLYPH_INK): Map<string, string> {
+    if (!this.glyphUrls) this.glyphUrls = new Map();
+    const have = this.glyphUrls.get(ink);
+    if (have) return have;
+    const map = new Map<string, string>();
+    for (const [type, name] of Object.entries(this.settings.viewIcons || {})) {
+      const svg = getIcon(name);
+      if (!svg) continue;
+      const inner = svg.innerHTML.replace(/currentColor/g, ink);
+      // 아이콘의 자기 좌표(viewBox)를 그대로 쓴다: 플러그인 아이콘은 24 가 아닐 수 있다(Excalidraw 는 100). 예전엔 늘 24 로 잘라
+      // 아이콘 한쪽 귀퉁이만 보였다 (사용자 지적). 선으로 그린 아이콘(Lucide 처럼 stroke 가 있는 것)은 선 굵기를 좌표에 맞춰 늘리고,
+      // 채워 그린 아이콘은 선 없이 채움색으로 칠한다
+      const vb = svg.getAttribute("viewBox") || "0 0 24 24";
+      const vw = parseFloat(vb.split(/[\s,]+/)[2]) || 24;
+      const stroked = svg.hasAttribute("stroke");
+      const paint = stroked
+        ? `fill='none' stroke='${ink}' stroke-width='${+((2.6 * vw) / 24).toFixed(2)}' stroke-linecap='round' stroke-linejoin='round'`
+        : `fill='${ink}'`;
+      map.set(type, glyphUrl(`<svg x='2.5' y='6.6' width='9' height='9' viewBox='${vb}' ${paint}>${inner}</svg>`));
+    }
+    this.glyphUrls.set(ink, map);
+    return map;
+  },
+
+  // 색 지정 폴더에 다는 기호 변수: 그 색으로 그린 기본 기호(--lg-glyph-*)와 배운 보기 아이콘(--lg-glyph-v-*)
+  glyphProps(this: GlassShelfPlugin, ink: string): Record<string, string> {
+    const props: Record<string, string> = {};
+    for (const [name, draw] of Object.entries(GLYPH_FALLBACK)) props[`--lg-glyph-${name}`] = glyphUrl(draw(ink));
+    for (const [type, url] of this.glyphUrlMap(ink)) props[`--lg-glyph-v-${glyphKey(type)}`] = url;
+    return props;
+  },
+
+  // 문서(창)마다 body 에 종류별 그림 변수를 단다. 바뀐 게 없으면 다시 달지 않는다 (줄이 바뀔 때마다 불린다)
+  glyphBodyVars(this: GlassShelfPlugin, doc: Document, urls: Map<string, string>) {
+    if (!this.glyphDocs) this.glyphDocs = new WeakMap();
+    const sig = [...urls.keys()].join(",");
+    if (!doc.body || this.glyphDocs.get(doc) === sig) return;
+    this.glyphDocs.set(doc, sig);
+    const props: Record<string, string> = {};
+    for (const [type, url] of urls) props[`--lg-glyph-v-${glyphKey(type)}`] = url;
+    doc.body.setCssProps(props);
+  },
+
+  // 열린 보기의 아이콘을 배운다: 문서를 여는 보기(마크다운 제외)의 아이콘 이름을 기억해 두고, 바뀌면 기호를 다시 그린다.
+  // 문서를 여는 보기만 친다: 그 확장자를 맡은 보기이거나, md 문서의 '<보기 이름>-plugin' 속성이 가리키는 보기.
+  // 개요·백링크처럼 문서에 딸린 옆 패널 보기도 FileView 라 예전엔 같이 배웠다 (측정). 그런 것은 지운다
+  learnViewIcons(this: GlassShelfPlugin) {
+    const known = this.settings.viewIcons || {};
+    const next = { ...known };
+    const reg = (this.app as unknown as { viewRegistry?: { typeByExtension?: Record<string, string> } }).viewRegistry;
+    const byExt = (reg && reg.typeByExtension) || {};
+    let changed = false;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const v = leaf.view;
+      if (!(v instanceof FileView) || !v.file) return;
+      const type = v.getViewType();
+      if (type === "markdown") return;
+      const ext = v.file.extension.toLowerCase();
+      const fm = ext === "md" ? this.app.metadataCache.getFileCache(v.file)?.frontmatter : undefined;
+      const opens = byExt[ext] === type || (!!fm && `${type}-plugin` in fm);
+      if (!opens) {
+        if (type in next) {
+          delete next[type];
+          changed = true;
+        }
+        return;
+      }
+      const icon = v.getIcon();
+      if (!icon || next[type] === icon) return;
+      next[type] = icon;
+      changed = true;
+    });
+    if (!changed) return;
+    this.settings.viewIcons = next;
+    this.glyphUrls = null;
+    void this.saveSettings();
+    this.requestFolderColors(true);
+  },
+
   applyStripes(this: GlassShelfPlugin, list: HTMLElement) {
     // 줄 자리는 rowExtent 가 잰 것을 그대로 쓴다 (줄마다 두 번 재던 것을 한 번으로. 스크롤 중 보이는 줄이 바뀔 때마다 돈다)
     const m = this.rowExtent(list);

@@ -9,6 +9,8 @@ export const REFRACT_TARGETS: [string, number][] = [
   [".graph-controls.is-close .graph-controls-button", 32],
   [".lg-tab-nav, .lg-nav-run, .lg-path-pill, .side-dock-actions, .workspace-drawer-vault-switcher, .status-bar, .lg-kb-group, .lg-tab-tools", 26],
   [".mod-left-split .workspace-tab-header-container-inner, .mod-right-split .workspace-tab-header-container-inner", 26],
+  // 캔버스 알약: 카드 도구 막대, 오른쪽 조작 버튼 묶음, 옮겨 온 카드 추가 버튼 묶음 (사용자 요청)
+  [".canvas-menu, .canvas-controls > .canvas-control-group, .canvas-controls > .canvas-card-menu", 26],
   [".mod-root .workspace-tab-header-container .workspace-tab-header.is-active", 23],
   [".titlebar-button-container.mod-right", 26],
   // Bases 툴바 버튼: 알약은 다른 알약, 기호만 있는 원은 다른 원 버튼과 같은 세기 (사용자 지적: 알약과 값이 달랐다)
@@ -103,15 +105,16 @@ export const WARM_MAX = 40;
 // 탭 렌즈 안에서 탭 줄 알약 밖(패널 바탕)에서 끌려온 픽셀을 어둡게 하는 정도 (0 = 그대로, 사용자 요청)
 export const LENS_SHADE = 0.04; // 0.2 에서 사용자 요청으로 옅게
 export const LENS_TAB: LensShape = { minify: 1.2, flat: 0.94, edge: 2, reach: 1.1, shape: 1, line: true, box: true };
-// 데스크톱(모바일 서랍이 아닌 패널) 탭 렌즈: 안쪽을 1.3 배 작게 (사용자 요청). 나머지는 LENS_TAB 과 같다
-export const LENS_TAB_PC: LensShape = { ...LENS_TAB, minify: 1.3 };
+// 데스크톱(모바일 서랍이 아닌 패널) 탭 렌즈: 안쪽을 1.25 배 작게 (사용자 요청). 나머지는 LENS_TAB 과 같다
+export const LENS_TAB_PC: LensShape = { ...LENS_TAB, minify: 1.25 };
 // 탭 렌즈 안 글자 전용 굴절 (조율기 값, 26.10.13). 렌즈 유리는 탭 줄 알약만 굴절하고, 렌즈 안 글자는 복사본에 이 굴절을 따로 건다
 export const LENS_TAB_TEXT: LensShape = { minify: 1, flat: 0.6, edge: 0.2, reach: 0.9, shape: 1 };
 
 // 누를 때 알약이 되는 흰색. 알약 채움(테마 --lg-glass-fill)이 color-mix 라 color(srgb …) 로 계산되는데,
 // Chromium 은 옛 rgb() 와 color(srgb …) 사이를 보간할 때 0~255 값을 색 성분에 섞어 노랑·빨강(또는 검정)으로 튄다 (측정 확인).
 // 같은 표기(color(srgb …))끼리는 바르게 보간된다
-export const PRESS_WHITE = "color(srgb 1 1 1)";
+// 누를 때 부푸는 채움: 테마의 --lg-press (회색, 사용자 요청: 흰색 대신 톤다운)
+export const PRESS_WHITE = "var(--lg-press)";
 // 누를 때 하얘지는 동안의 배경 그림: 광택·틴트 층(두 번째 층)만 빼고 테두리 칸의 외곽선·양옆 선(--lg-cres-img)은 그대로 둔다
 // (사용자 요청: 하얘질 때 외곽선까지 하얘질 필요 없다. 예전엔 none 이라 테두리 칸까지 흰 채움에 덮였다)
 export const PRESS_IMG = "var(--lg-cres-img), none";

@@ -119,6 +119,12 @@ body.lg-ui:not(.is-mobile) .workspace-ribbon:is(.mod-left, .mod-primary) {
   display: none;
 }
 
+/* 오른쪽 리본 (Commander 등이 버튼을 넣을 때만 생긴다): 버튼은 리본 메뉴 오른쪽 기타 버튼(.lg-junk) 메뉴로 (사용자 요청).
+   Commander 가 리본에 display: flex 를 걸어 그보다 세게 숨긴다 */
+body.lg-ui:not(.is-mobile) .workspace-ribbon:is(.mod-right, .mod-secondary):not(#lg) {
+  display: none;
+}
+
 /* 태블릿: 리본은 왼쪽 서랍 안에 있다. 버튼은 모두 편집창 탭 줄의 리본 메뉴로 모았으니(아래쪽 보관함·설정 버튼 포함) 리본을 통째로 숨긴다 */
 body.lg-ui.is-tablet .workspace-drawer-ribbon {
   display: none;
@@ -322,7 +328,7 @@ body.lg-ui.is-tablet .workspace-drawer {
 /* 닫기(X)는 탭 맨 왼쪽, 메뉴(≡)는 오른쪽 끝 */
 .lg-ui .mod-root .workspace-tab-header-inner-close-button {
   order: -1;
-  position: static;
+  position: relative; /* 호버 유리(.lg-hover-glass)의 기준 */
 }
 
 .lg-tab-menu {
@@ -365,16 +371,16 @@ body.lg-ui.is-tablet .workspace-drawer {
 body:not(.theme-dark) .lg-seg-lens {
   box-shadow: var(--lg-rim-in-plain, var(--lg-rim-in));
   /* 외곽선(22%)은 가장자리 선(40%)과 함께 테두리 칸에 칠한다 */
-  background-image: linear-gradient(to right, rgb(0 0 0 / 0.4), rgb(0 0 0 / 0.22) min(var(--lg-cres-fade), 50%), rgb(0 0 0 / 0.22) max(calc(100% - var(--lg-cres-fade)), 50%), rgb(0 0 0 / 0.4)), none;
+  background-image: linear-gradient(var(--lg-cres-dir, to right), rgb(0 0 0 / 0.22), rgb(0 0 0 / 0.4) min(var(--lg-cres-fade), 50%), rgb(0 0 0 / 0.4) max(calc(100% - var(--lg-cres-fade)), 50%), rgb(0 0 0 / 0.22)), none;
 }
 
-/* 렌즈 링 그림자 (사용자 요청): 바깥·안쪽 그림자로 흉내 내지 않고, 렌즈 유리 아래(렌즈 틀의 ::before, 렌즈 층보다 먼저 그려짐)에
-   테두리만 있는 고리를 흐려 깐다. 렌즈 유리가 뒤를 떠 와 굴절하므로 그림자가 유리 너머로 비친다. 렌즈 정도(--lg-g)만큼 나타난다.
-   값은 테마의 링 토큰(--lg-ring·--lg-ring-y·--lg-ring-blur), 편집창 탭과 같다 */
-.lg-seg-indicator::before {
+/* 렌즈 링 그림자 (사용자 요청): 바깥·안쪽 그림자로 흉내 내지 않고 테두리만 있는 고리를 흐려 깐다. 다른 알약처럼 채움(회색 층·렌즈 유리)
+   위·내용 아래에 둔다: 렌즈 틀의 ::after 라 두 층보다 나중에 그려지고, 글자 복사본은 따로 렌즈 위에 있다 (사용자 요청). 렌즈 정도(--lg-g)만큼 나타난다.
+   값은 테마의 링 토큰(--lg-ring·--lg-ring-y·--lg-ring-blur·--lg-ring-in), 편집창 탭과 같다 */
+.lg-seg-indicator::after {
   content: "";
   position: absolute;
-  inset: 0;
+  inset: var(--lg-ring-in-y, 0) var(--lg-ring-in, 0); /* 위아래·좌우 */
   border: var(--lg-ring, 1px solid rgb(0 0 0 / 0.12));
   border-radius: inherit;
   corner-shape: inherit;
@@ -598,10 +604,6 @@ body.lg-fc-sorting * {
   overflow: hidden;
 }
 
-.lg-invisible:not(#lg):not(#lg):not(#lg):not(#lg) {
-  visibility: hidden;
-}
-
 .lg-right-auto:not(#lg):not(#lg):not(#lg):not(#lg) {
   right: auto;
 }
@@ -610,9 +612,6 @@ body.lg-fc-sorting * {
   bottom: auto;
 }
 
-.lg-min-w0:not(#lg):not(#lg):not(#lg):not(#lg) {
-  min-width: 0;
-}
 
 /* 설정 창 뒤로 버튼이 숨을 때 그 자리에 띄우는 사본 (자리·크기는 플러그인이 잰다) */
 .lg-back-ghost:not(#lg):not(#lg):not(#lg):not(#lg) {
@@ -863,3 +862,404 @@ body.lg-fc-sorting * {
   pointer-events: none;
 }
 
+
+/* 말풍선 화살표 (사용자 요청: 맥 팝오버처럼). Bases 툴바 메뉴는 원래 둥근 사각형(그림자·외곽선·모서리 모양 그대로)이고,
+   플러그인(arrowOn)이 위 끝에 화살표 SVG(.lg-arrow-line)를 붙인다. 화살표 높이(11px, 플러그인 ARROW_H)만큼 메뉴를 내려
+   화살표 끝이 Obsidian 이 정한 자리(버튼 아래 끝 + 4px)에 온다 */
+body:not(.is-phone) .lg-menu-arrow:not(#lg):not(#lg) {
+  margin-top: 11px;
+  overflow: visible;
+  /* 그림자는 화살표까지 한 덩어리로: 상자 그림자 대신 같은 값의 drop-shadow (화살표 밑에 몸통 그림자가 비치지 않게) */
+  /* 아래 하이라이트만 상자 그림자로. 위 하이라이트는 화살표를 따라가게 플러그인이 그린다(.lg-arrow-hi) */
+  /* 옆면 옅은 하이라이트는 양옆에만: 사방 고리로 두면 윗선을 따라 화살표 밑동을 가로지르는 줄이 생겼다 (사용자 지적) */
+  box-shadow:
+    inset 1px 0 0 0 color-mix(in srgb, var(--lg-hi-t-c, rgb(255 255 255 / 0.7)) 40%, transparent),
+    inset -1px 0 0 0 color-mix(in srgb, var(--lg-hi-t-c, rgb(255 255 255 / 0.7)) 40%, transparent);
+  filter: drop-shadow(var(--lg-menu-glow, 0 0 24px rgb(0 0 0 / 0.12)));
+  /* 테두리: 일반 테두리 색 (테마 메뉴 규칙과 같은 까닭: 테두리 칸에만 칠하는 배경은 여는 애니메이션 동안 그려지지 않았다).
+     화살표 밑동 자리의 윗선은 화살표 채움(바탕 층·채움, 밑동에서 윗선 아래 끝까지 내려 그린다)이 덮고, 그 자리는 화살표 선이 잇는다 */
+  border: var(--lg-cres-w) solid var(--lg-cres-c);
+  background-image: var(--lg-sheen);
+  background-clip: border-box;
+  background-origin: padding-box;
+}
+
+/* 아래 화살표(창이 대상보다 위, 플러그인 .lg-arrow-down): 위로 화살표 높이만큼 올리고, 빈칸은 아랫선에, 상자 그림자 하이라이트는 위 것만 */
+body:not(.is-phone) .lg-menu-arrow.lg-arrow-down:not(#lg):not(#lg) {
+  margin-top: -11px;
+  box-shadow:
+    inset 1px 0 0 0 color-mix(in srgb, var(--lg-hi-t-c, rgb(255 255 255 / 0.7)) 40%, transparent),
+    inset -1px 0 0 0 color-mix(in srgb, var(--lg-hi-t-c, rgb(255 255 255 / 0.7)) 40%, transparent);
+}
+
+.lg-menu-arrow > .lg-arrow-line {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+
+/* 화살표 바탕 층: 뒤가 비치지 않게 화면 바탕색 (창 몸통은 뒤 흐림으로 덮인다) */
+.lg-menu-arrow > .lg-arrow-line > .lg-arrow-base {
+  fill: var(--background-primary);
+}
+
+/* 화살표에 창 위아래 끝의 옅은 흰색(테마 --lg-sheen 끝 색)을 깐다 */
+.lg-menu-arrow > .lg-arrow-line > .lg-arrow-sheen {
+  fill: color-mix(in srgb, #fff var(--lg-sheen-hi, 6%), var(--lg-sheen-c, transparent));
+}
+
+.lg-menu-arrow > .lg-arrow-line > .lg-arrow-stroke {
+  fill: none;
+  stroke: var(--lg-cres-c); /* 메뉴 테두리와 같은 알약 진한 색 */
+}
+
+/* 위아래 하이라이트를 그리는 메뉴(플러그인 menuHi, .lg-has-hi): 상자 그림자에는 옆면 옅은 선과 그림자만 */
+body:not(.is-phone) :is(.menu, .lg-mdemo-menu).lg-has-hi:not(#lg) {
+  box-shadow:
+    inset 1px 0 0 0 color-mix(in srgb, var(--lg-hi-t-c, rgb(255 255 255 / 0.7)) 40%, transparent),
+    inset -1px 0 0 0 color-mix(in srgb, var(--lg-hi-t-c, rgb(255 255 255 / 0.7)) 40%, transparent),
+    var(--lg-menu-glow, 0 0 24px rgb(0 0 0 / 0.12));
+}
+
+/* 메뉴 위아래 하이라이트 선 굵기: 알약 하이라이트와 같은 --lg-hi-w (0.6px) */
+:is(.menu, .lg-menu-arrow, .lg-mdemo-menu) > .lg-arrow-hi path {
+  stroke-width: var(--lg-hi-w, 1px);
+}
+
+.menu > .lg-arrow-hi,
+.lg-menu-arrow > .lg-arrow-hi,
+.lg-mdemo-menu > .lg-arrow-hi {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  overflow: visible;
+}
+
+.lg-menu-arrow:not(.lg-arrow-on) > .lg-arrow-line {
+  display: none;
+}
+
+/* ---- 그림으로 고르는 설정 줄 (설정 탭 pickRow, 사용자 요청: iPadOS Safari 설정의 탭 막대 고르기처럼) ----
+   줄 이름·설명은 위에, 그 아래 폭 전체에 선택지(미리 보기 그림 + 이름 + 동그라미)를 가운데로 나란히 둔다.
+   고른 것은 그림과 동그라미가 강조색(동그라미 안 흰 체크), 아닌 것은 회색 그림과 빈 동그라미 */
+.lg-settings .setting-item.lg-pick-row {
+  flex-wrap: wrap;
+}
+
+.lg-settings .setting-item.lg-pick-row > .lg-pick {
+  flex: 1 0 100%;
+  display: flex;
+  /* 폭이 좁으면(휴대폰) 선택지가 줄 밖으로 튀어나가지 않고 가로로 스크롤된다 (사용자 요청). safe: 넘칠 때는 가운데 대신 왼쪽부터 놓아
+     첫 선택지가 왼쪽으로 잘려 스크롤로도 닿지 않는 일을 막는다 */
+  justify-content: safe center;
+  gap: 48px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding: 12px 4px 4px;
+}
+
+.lg-pick-item {
+  flex: none;
+}
+
+.lg-pick-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-faint);
+  border-radius: 12px;
+  outline: none;
+}
+
+.lg-pick-item:focus-visible {
+  box-shadow: 0 0 0 2px var(--interactive-accent);
+}
+
+.lg-pick-item.is-picked {
+  color: var(--interactive-accent);
+}
+
+.lg-pick-pic {
+  width: 112px;
+  height: 80px;
+  overflow: visible;
+}
+
+.lg-pick-label {
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+
+.lg-pick-dot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--background-modifier-border);
+  color: transparent;
+  --icon-size: 14px;
+  --icon-stroke: 3px;
+}
+
+.lg-pick-item.is-picked .lg-pick-dot {
+  border-color: var(--interactive-accent);
+  background-color: var(--interactive-accent);
+  color: #fff;
+}
+
+.lg-pick-dot svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 3px;
+}
+
+/* ---- 유리 투명도 미리 보기 (설정 탭 glassDemo, 사용자 요청: 임시 문서 위에 알약을 띄워 슬라이더로 체험) ----
+   카드 안 위쪽에 실제 편집창 알약(.lg-tab-nav·.lg-path-pill·.lg-tab-mode, 유리·링은 테마의 같은 규칙)이 폭 전체로 떠 있고,
+   그 밑으로 실제 마크다운으로 그린 문서(콜아웃 포함)가 스크롤된다. 여기서는 배치만 정한다 */
+.lg-settings .setting-item.lg-gdemo-row {
+  flex-wrap: wrap;
+}
+
+.lg-settings .setting-item.lg-gdemo-row > .lg-gdemo {
+  order: -1;
+  /* 휴대폰은 설정 줄이 세로로 쌓여서(column) flex: 1 0 100% 로는 폭·높이가 0으로 줄었다 */
+  flex: none;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.lg-gdemo {
+  position: relative;
+  height: 280px;
+  overflow: hidden;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 26px;
+  corner-shape: var(--lg-rect-shape, round);
+  background-color: var(--background-primary);
+}
+
+.lg-gdemo-doc {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  padding: calc(var(--lg-pill-h, 36px) + 24px) 24px 200px;
+}
+
+.lg-gdemo-doc::-webkit-scrollbar-track {
+  margin-top: calc(var(--lg-pill-h, 36px) + 8px);
+  margin-bottom: 4px;
+}
+
+.lg-gdemo-md {
+  font-size: var(--font-text-size);
+  user-select: text;
+}
+
+.lg-gdemo-bar {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  right: 8px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--lg-gap, 8px);
+}
+
+.lg-gdemo-bar > :is(.lg-tab-nav, .lg-path-pill, .lg-tab-mode) {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.lg-gdemo-bar > .lg-path-pill {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* 미리 보기 알약 글자: 실제 경로(옅은 색)보다 진하게 (사용자 요청) */
+.lg-gdemo-bar .lg-path-text:not(#lg) {
+  color: var(--text-normal);
+}
+
+/* 휴대폰 검색창: 글자를 가운데가 아닌 왼쪽에 */
+.lg-gdemo-search .lg-path-text:not(#lg) {
+  justify-content: flex-start;
+  padding-inline-end: 0;
+  color: var(--text-muted);
+}
+
+.lg-gdemo-bar > .lg-tab-mode {
+  justify-content: center;
+  width: var(--lg-btn, 36px);
+  height: var(--lg-btn, 36px);
+  border-radius: 50%;
+}
+
+/* ---- 컴팩트 모드 미리 보기 (설정 탭 motionDemo, 사용자 요청): 단독 버튼(···)이 눌리고 메뉴가 열려 항목 위를 지나가다 닫히는 그림.
+   실제 메뉴가 아니라 카드 안 요소라 눌리지 않는다. 판·항목 모양은 실제 메뉴와 같은 변수를 써서 이 기기의 컴팩트 모드 설정을 따른다 ---- */
+.lg-settings .setting-item.lg-mdemo-row {
+  flex-wrap: wrap;
+}
+
+.lg-settings .setting-item.lg-mdemo-row > .lg-mdemo {
+  order: -1;
+  flex: none;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.lg-mdemo {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lg-mdemo-stage {
+  position: relative;
+  height: 200px;
+  overflow: hidden;
+  pointer-events: none;
+  user-select: none;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 26px;
+  corner-shape: var(--lg-rect-shape, round);
+  background-color: var(--background-primary);
+}
+
+.lg-mdemo-stage > .lg-mdemo-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  isolation: isolate;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--lg-btn, 36px);
+  height: var(--lg-btn, 36px);
+  border-radius: 50%;
+}
+
+/* 판: 실제 메뉴(.menu)와 같은 채움·테두리·그림자·흐림·곡률. 위아래 하이라이트 선은 실제 메뉴처럼 플러그인 menuHi 가 모서리 곡선을 따라 그린다 */
+.lg-mdemo-menu {
+  position: absolute;
+  top: calc(12px + var(--lg-btn, 36px) + 6px);
+  left: 12px;
+  display: flex;
+  flex-direction: column;
+  min-width: 170px;
+  padding: var(--lg-menu-pad, 6px);
+  opacity: 0;
+  border: var(--lg-cres-w, 1px) solid var(--lg-cres-c, var(--background-modifier-border));
+  border-radius: var(--lg-menu-radius, 18px);
+  corner-shape: var(--lg-rect-shape, round);
+  background-color: var(--lg-glass-fill, var(--background-primary));
+  background-image: var(--lg-sheen, none);
+  box-shadow: var(--lg-menu-rim, none), var(--lg-menu-glow, none);
+  -webkit-backdrop-filter: blur(var(--lg-menu-blur, 3px)) var(--lg-menu-tone,);
+  backdrop-filter: blur(var(--lg-menu-blur, 3px)) var(--lg-menu-tone,);
+}
+
+.lg-mdemo-item {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: var(--lg-menu-item-h, 28px);
+  padding: 6px 12px;
+  border-radius: var(--lg-menu-item-r, 12px);
+  corner-shape: round;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+}
+
+.lg-mdemo-icon {
+  display: flex;
+  color: var(--icon-color, var(--text-muted));
+}
+
+/* 링 그림자: 실제 메뉴(테마 .menu::before)와 같은 흐린 고리 */
+.lg-mdemo-menu::before {
+  content: "";
+  position: absolute;
+  inset: var(--lg-ring-in-y, 0) var(--lg-ring-in, 0);
+  z-index: -1;
+  pointer-events: none;
+  border: var(--lg-ring, 1px solid rgb(0 0 0 / 0.26));
+  border-radius: inherit;
+  corner-shape: inherit;
+  transform: translateY(var(--lg-ring-y, 4px));
+  filter: blur(var(--lg-ring-blur, 4px));
+}
+
+/* 호버 판: 항목 사이를 미끄러져 따라간다 (컴팩트 모드를 끈 기기, 실제 메뉴의 .lg-menu-hl 과 같은 색·곡선) */
+.lg-mdemo-hl {
+  position: absolute;
+  top: var(--lg-menu-pad, 6px);
+  left: var(--lg-menu-pad, 6px);
+  right: var(--lg-menu-pad, 6px);
+  height: var(--lg-menu-item-h, 28px);
+  z-index: 0;
+  opacity: 0;
+  border-radius: var(--lg-menu-item-r, 12px);
+  corner-shape: round;
+  background-color: color-mix(in srgb, var(--lg-hl, currentColor) 7%, transparent);
+  transition:
+    transform 260ms cubic-bezier(0.3, 1.25, 0.5, 1),
+    opacity 140ms ease;
+}
+
+.lg-mdemo-hl.is-on {
+  opacity: 1;
+}
+
+.lg-mdemo-hl.lg-no-tr {
+  transition: none;
+}
+
+/* 컴팩트 모드를 끈 기기: 실제 메뉴처럼 최소 폭 250px */
+.lg-mdemo:not(.lg-mdemo-rm) .lg-mdemo-menu {
+  min-width: 250px;
+  border-color: var(--lg-ol-c, transparent) var(--lg-cres-c, var(--background-modifier-border));
+}
+
+/* 컴팩트 모드를 끈 기기: 실제 메뉴처럼 열린 뒤(.is-still) 외곽선을 좌우만 진하게 (알약 테두리 그라데이션) */
+.lg-mdemo:not(.lg-mdemo-rm) .lg-mdemo-menu.is-still {
+  background-image: var(--lg-cres-img, none), var(--lg-sheen, none);
+  background-clip: border-area, border-box;
+  border-color: transparent;
+}
+
+/* 컴팩트 모드를 켠 기기: 네모난 항목, 호버는 강조색 판(실제 메뉴와 같다) */
+.lg-mdemo-rm .lg-mdemo-item,
+.lg-mdemo-rm .lg-mdemo-hl {
+  padding: 5px 10px;
+  corner-shape: var(--lg-rect-shape, round);
+}
+
+.lg-mdemo-rm .lg-mdemo-item.is-hover {
+  --lg-accent-ink: hsl(0 0% clamp(0%, calc((62% - var(--accent-l, 50%)) * 1000), 100%));
+  background-color: var(--interactive-accent);
+  color: var(--lg-accent-ink);
+  --icon-color: var(--lg-accent-ink);
+}
+
+.lg-mdemo-state {
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+/* 버튼·드롭다운에서 넓어지는 메뉴는 플러그인이 고정 폭을 준다. 테마 최소 폭(250px)이 남으면 오른쪽으로 열리고 오른쪽으로 사라졌다 */
+.menu.lg-morph-w:not(#lg):not(#lg) {
+  min-width: 0;
+}

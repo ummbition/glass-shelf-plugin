@@ -23,7 +23,7 @@ __export(main_exports, {
   default: () => GlassShelfCompanion
 });
 module.exports = __toCommonJS(main_exports);
-var import_obsidian14 = require("obsidian");
+var import_obsidian16 = require("obsidian");
 
 // src/core.ts
 var import_obsidian5 = require("obsidian");
@@ -265,8 +265,6 @@ var DEFAULTS = {
   // 1~5: 유리 뒤를 바탕색 쪽으로 바래게 (--lg-fade 0.45~0.8). 6~10: 다 바랜 채로 채움을 더해 뿌옇게 (예전 뿌연 정도 1~5).
   // 흐림 세기는 테마에 고정(--lg-blur-k)
   glassLevel: 5,
-  // 호버 유리 크기: false = 알약 안 버튼 크기(컨테이너보다 작게, 파일 앱), true = 컨테이너 높이(사파리)
-  hoverLarge: false,
   // 탭 줄 첫 줄에 지금 문서의 "폴더 / 파일" 경로를 보이고, 탭은 둘째 줄로 내린다
   showPath: true,
   webTint: true,
@@ -278,6 +276,8 @@ var DEFAULTS = {
   sideAcrylic: false,
   // 굴절(가장자리에서 뒤 배경이 휘어 보이는 효과)
   refraction: true,
+  // 컴팩트 모드: 버튼 누름 효과를 줄이는 곳. "off" = 끔, "pc" = PC 만, "pcTablet" = PC·태블릿 (휴대폰은 늘 원래 효과)
+  reduceMotion: "pc",
   // 토글·슬라이더 색: "green" = iOS 색(토글 초록, 슬라이더 파랑), "accent" = 둘 다 Obsidian 강조색
   toggleColor: "green",
   // 유리 틴트: "none" = 투명, "accent" = Obsidian 강조색, "obsidian" = Obsidian 기본 보라, "custom" = tintColor
@@ -327,9 +327,10 @@ var migrateGlassLevel = function(o) {
 };
 
 // src/constants.ts
-var HOVER_ICON = ".clickable-icon:not(.lg-tab-menu):not(.workspace-tab-header-inner-close-button), .bases-toolbar .bases-toolbar-item > .text-icon-button, .bases-kanban-column-footer > .text-icon-button";
+var HOVER_ICON = ".clickable-icon, .mod-root .workspace-tab-header-inner-close-button, .bases-toolbar .bases-toolbar-item > .text-icon-button, .bases-kanban-column-footer > .text-icon-button";
 var HOVER_GLASS = [
-  ".clickable-icon:not(.lg-tab-menu):not(.workspace-tab-header-inner-close-button)",
+  ".clickable-icon",
+  ".mod-root .workspace-tab-header-inner-close-button",
   ".workspace-drawer-vault-switcher",
   ".bases-toolbar .bases-toolbar-item > .text-icon-button",
   ".bases-kanban-column-footer > .text-icon-button",
@@ -347,6 +348,7 @@ var PRESS_POP = [
   ".lg-nav-rest > .clickable-icon",
   ".lg-panel-toggle",
   ".lg-tab-mode",
+  ".lg-act-btn",
   ".lg-rib-menu",
   ".workspace-drawer-vault-actions .clickable-icon",
   ".graph-controls.is-close .graph-controls-button",
@@ -355,13 +357,14 @@ var PRESS_POP = [
 ].join(", ");
 var MORPH_DASH = 30;
 var BASES_MENU_BTN = ":is(.bases-toolbar-views-menu, .bases-toolbar-result-count, .bases-toolbar-sort-menu, .bases-toolbar-group-menu, .bases-toolbar-filter-menu, .bases-toolbar-properties-menu) > .text-icon-button";
-var PRESS_DELAY_MS = 90;
+var PRESS_ABORT_RATE = 2;
 var HOLD_RETURN_MS = 260;
 var HOLD_EASE_SPAN = 0.14;
 var PRESS_SLOP = 10;
 var MORPH_OVERSHOOT = 5;
 var MORPH_NUDGE = 3;
 var MENU_DROP = 6;
+var ACT_MAX = 5;
 var NAV_SEARCH_MAX = 240;
 var NAV_SEARCH_MIN = 120;
 var EASE = {
@@ -377,7 +380,7 @@ var STRIPE_FOLLOW_MS = 400;
 var DRAG_SCROLL_ZONE = 48;
 var DRAG_SCROLL_MAX = 14;
 var TASK_PRESS_MS = 260;
-var MENU_MOVE_MS = 320;
+var MENU_MOVE_MS = 240;
 var PANEL_TOGGLES = ".sidebar-toggle-button .clickable-icon, .lg-panel-toggle";
 var RIPPLE_K = 6;
 var RIPPLE_HOLD = 0.6;
@@ -418,8 +421,8 @@ var MOBILE_PRESS_POP = [
   ".mobile-toolbar-floating-options",
   ".mobile-tab-switcher-menu-spacer > .clickable-icon"
 ].join(", ");
-var MOBILE_PRESS_PILL = ".is-floating-nav .mobile-navbar.mod-raised, .view-header .view-actions.mod-raised, .mobile-toolbar-options-list-container.mod-raised, .workspace-drawer-tab-options-list, .mobile-tab-switcher-menu-button";
-var MOBILE_PRESS_BTN = ".clickable-icon, button, .mobile-navbar-action, .mobile-toolbar-option, .workspace-tab-header, .mobile-tab-switcher-menu-button";
+var MOBILE_PRESS_PILL = ".is-floating-nav .mobile-navbar.mod-raised, .view-header .view-actions.mod-raised, .mobile-toolbar-options-list-container.mod-raised, .workspace-drawer-tab-options-list, .mobile-tab-switcher-menu-button, body.is-tablet .canvas-menu, body.is-tablet .canvas-controls > .canvas-control-group, body.is-tablet .canvas-controls > .canvas-card-menu";
+var MOBILE_PRESS_BTN = ".clickable-icon, button, .mobile-navbar-action, .mobile-toolbar-option, .workspace-tab-header, .mobile-tab-switcher-menu-button, .canvas-control-item, .canvas-card-menu-button";
 var MENU_POP = 4;
 var MINI_TOP = 40;
 var MINI_STEP = 24;
@@ -431,6 +434,18 @@ var KB_GROUP_ICONS = ["lucide-plus-circle", "lucide-archive", "lucide-file-text"
 var KB_LANE_MS = 300;
 var KB_PILL_DOT = 1;
 var KB_DASH_MS = 300;
+var LIFT_KEEP_LIGHT = 0.75;
+var LIFT_BLACK = 0.6;
+var LIFT_KEEP_DARK = 0.25;
+var LIFT_WHITE = 0.45;
+var HOST_DOM = [
+  ".workspace-split.mod-root",
+  ".workspace-tabs .workspace-tab-header-container",
+  ".workspace-tab-header-container-inner",
+  ".workspace-ribbon",
+  ".workspace-leaf-content .view-header .view-actions"
+];
+var MAGNET_COMPACT = 0.6;
 
 // src/refract.ts
 var import_obsidian2 = require("obsidian");
@@ -441,6 +456,8 @@ var REFRACT_TARGETS = [
   [".graph-controls.is-close .graph-controls-button", 32],
   [".lg-tab-nav, .lg-nav-run, .lg-path-pill, .side-dock-actions, .workspace-drawer-vault-switcher, .status-bar, .lg-kb-group, .lg-tab-tools", 26],
   [".mod-left-split .workspace-tab-header-container-inner, .mod-right-split .workspace-tab-header-container-inner", 26],
+  // 캔버스 알약: 카드 도구 막대, 오른쪽 조작 버튼 묶음, 옮겨 온 카드 추가 버튼 묶음 (사용자 요청)
+  [".canvas-menu, .canvas-controls > .canvas-control-group, .canvas-controls > .canvas-card-menu", 26],
   [".mod-root .workspace-tab-header-container .workspace-tab-header.is-active", 23],
   [".titlebar-button-container.mod-right", 26],
   // Bases 툴바 버튼: 알약은 다른 알약, 기호만 있는 원은 다른 원 버튼과 같은 세기 (사용자 지적: 알약과 값이 달랐다)
@@ -484,9 +501,9 @@ var MAP_CACHE = 200;
 var WARM_MAX = 40;
 var LENS_SHADE = 0.04;
 var LENS_TAB = { minify: 1.2, flat: 0.94, edge: 2, reach: 1.1, shape: 1, line: true, box: true };
-var LENS_TAB_PC = { ...LENS_TAB, minify: 1.3 };
+var LENS_TAB_PC = { ...LENS_TAB, minify: 1.25 };
 var LENS_TAB_TEXT = { minify: 1, flat: 0.6, edge: 0.2, reach: 0.9, shape: 1 };
-var PRESS_WHITE = "color(srgb 1 1 1)";
+var PRESS_WHITE = "var(--lg-press)";
 var PRESS_IMG = "var(--lg-cres-img), none";
 var Refractor = class {
   constructor() {
@@ -1101,22 +1118,91 @@ var FolderColorModal = class extends import_obsidian3.Modal {
 };
 
 // src/settings-tab.ts
-var OUR_CLS = ["lg-settings-sub", "lg-fc-row", "lg-fc-pal-row", "lg-fc-add-row", "lg-fc-dragging"];
+var OUR_CLS = ["lg-settings-sub", "lg-fc-row", "lg-fc-pal-row", "lg-fc-add-row", "lg-fc-dragging", "lg-pick-row", "lg-gdemo-row", "lg-mdemo-row"];
 var fresh = (s) => {
   s.settingEl.removeClass(...OUR_CLS);
-  s.settingEl.querySelectorAll(".lg-fc-grip, .lg-fc-count").forEach((el) => el.remove());
+  s.settingEl.querySelectorAll(".lg-fc-grip, .lg-fc-count, .lg-pick, .lg-gdemo, .lg-mdemo").forEach((el) => el.remove());
   return s;
+};
+var SVG_NS2 = "http://www.w3.org/2000/svg";
+var svgEl = (parent, tag, attrs) => {
+  const el = parent.ownerDocument.createElementNS(SVG_NS2, tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, String(v));
+  parent.appendChild(el);
+  return el;
+};
+var pill = (g, x, y, w, h, op) => svgEl(g, "rect", { x, y, width: w, height: h, rx: h / 2, fill: "currentColor", "fill-opacity": op });
+var drawTabBar = (svg, twoRows) => {
+  svgEl(svg, "rect", { x: 1.5, y: 1.5, width: 109, height: 77, rx: 10, fill: "currentColor", "fill-opacity": 0.06, stroke: "currentColor", "stroke-width": 3 });
+  const sep = (x, y, h) => svgEl(svg, "rect", { x, y, width: 1.4, height: h, rx: 0.7, fill: "currentColor", "fill-opacity": 0.5 });
+  let body;
+  if (twoRows) {
+    pill(svg, 9, 8, 9, 9, 0.45);
+    pill(svg, 22, 8, 18, 9, 0.45);
+    pill(svg, 44, 8, 38, 9, 0.3);
+    pill(svg, 86, 8, 17, 9, 0.45);
+    pill(svg, 9, 21, 94, 9, 0.3);
+    svgEl(svg, "rect", { x: 10.5, y: 22.5, width: 30, height: 6, rx: 3, fill: "#fff" });
+    sep(71.5, 23, 5);
+    body = 38;
+  } else {
+    pill(svg, 9, 8, 9, 9, 0.45);
+    pill(svg, 22, 8, 64, 9, 0.3);
+    svgEl(svg, "rect", { x: 23.5, y: 9.5, width: 22, height: 6, rx: 3, fill: "#fff" });
+    sep(55.5, 10, 5);
+    sep(70.5, 10, 5);
+    pill(svg, 90, 8, 13, 9, 0.45);
+    body = 26;
+  }
+  for (const [k, w] of [[0, 70], [1, 82], [2, 58], [3, 76]]) {
+    const y = body + k * 9;
+    if (y < 70) pill(svg, 14, y, w, 3, 0.18);
+  }
+};
+var animate = (el, attr, values, keyTimes, mode) => {
+  const a = svgEl(el, "animate", { attributeName: attr, values, keyTimes, dur: "3.2s", repeatCount: "indefinite", calcMode: mode });
+  if (mode === "spline") a.setAttribute("keySplines", keyTimes.split(";").slice(1).map(() => "0.45 0 0.35 1").join(";"));
+};
+var drawTabAnim = (svg, kind, move) => {
+  svgEl(svg, "rect", { x: 1.5, y: 1.5, width: 109, height: 77, rx: 10, fill: "currentColor", "fill-opacity": 0.06, stroke: "currentColor", "stroke-width": 3 });
+  svgEl(svg, "rect", { x: 3, y: 3, width: 52, height: 74, fill: "currentColor", "fill-opacity": 0.07 });
+  svgEl(svg, "rect", { x: 55, y: 3, width: 1.4, height: 74, fill: "currentColor", "fill-opacity": 0.25 });
+  for (const [k, w] of [[0, 30], [1, 24], [2, 34], [3, 20]]) pill(svg, 62, 12 + k * 9, w, 3, 0.18);
+  if (kind === "list") {
+    const hl = pill(svg, 7, 9, 44, 9, 0.35);
+    if (move) animate(hl, "y", "9;31;9", "0;0.5;1", "discrete");
+    for (const y of [9, 20, 31]) pill(svg, 12, y + 3, 26, 3, 0.55);
+    return;
+  }
+  pill(svg, 7, 9, 44, 10, 0.25);
+  if (kind === "lens") {
+    const lens = svgEl(svg, "rect", { x: 33, y: 6.5, width: 20, height: 15, rx: 7.5, fill: "#fff", stroke: "currentColor", "stroke-width": 1.4 });
+    if (move) {
+      const kt = "0;0.2;0.35;0.5;0.7;0.85;1";
+      animate(lens, "x", "33;33;16;5;5;16;33", kt, "spline");
+      animate(lens, "width", "20;20;26;20;20;26;20", kt, "spline");
+    }
+  } else {
+    const sel = pill(svg, 35, 10.5, 15, 7, 1);
+    if (move) animate(sel, "x", "35;8;35", "0;0.5;1", "discrete");
+  }
 };
 var GlassShelfSettingTab = class extends import_obsidian4.PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     // 드롭다운 설정마다 이 기기에서 보여 주는 선택지
     this.options = /* @__PURE__ */ new Map();
+    // 유리 미리 보기 문서를 그릴 때 쓰는 수명(설정 화면을 닫거나 다시 그리면 정리한다)
+    this.demoComp = null;
+    this.demoEl = null;
+    // 컴팩트 모드 미리 보기 되풀이를 멈춘다 (설정 화면을 닫거나 다시 그릴 때)
+    this.motionStop = null;
     this.plugin = plugin;
     this.containerEl.addClass("lg-settings");
   }
   getControlValue(key) {
     if (key === "iosColors") return this.plugin.settings.toggleColor !== "accent";
+    if (key === "tabAnim" && this.plugin.settings.tabAnim === "lens" && this.plugin.settings.sideAcrylic && import_obsidian4.Platform.isWin && !import_obsidian4.Platform.isMobile) return "none";
     const v = super.getControlValue(key);
     const opts = this.options.get(key);
     if (opts && typeof v === "string" && !(v in opts)) return DEFAULTS[key];
@@ -1131,17 +1217,219 @@ var GlassShelfSettingTab = class extends import_obsidian4.PluginSettingTab {
     if (key === "webTint") pl.webReset(value === true);
     await pl.saveSettings();
     if (key === "showPath") pl.reloadWebViews();
+    if (key === "glassLevel") this.syncDemoDoc();
     if (key === "navCompact") pl.remeasureExplorers();
     if (key === "fileStripes") pl.requestFolderColors(true);
     if (key === "sideAcrylic" && value === true) pl.noticeSimpleTabs();
-    if (key === "tint" || key === "taskColor" || key === "folderColor" || key === "tabAnim") this.update();
+    if (key === "tint" || key === "taskColor" || key === "folderColor" || key === "tabAnim" || key === "sideAcrylic") this.update();
+  }
+  // 그림으로 고르는 설정 줄: 선택지마다 미리 보기 그림 + 이름 + 동그라미(고르면 강조색 체크). 줄 이름·설명은 위에 그대로 두고
+  // 그림 묶음은 줄 아래에 폭 전체로 놓는다 (CSS: .lg-pick-row). 누르면 값을 바꾸고 표시만 바꾼다
+  pickRow(s, key, opts) {
+    s.setClass("lg-pick-row");
+    const box = s.settingEl.createDiv({ cls: "lg-pick" });
+    const cur = this.getControlValue(key);
+    const items = opts.map((o) => {
+      const it = box.createDiv({ cls: "lg-pick-item", attr: { role: "radio", tabindex: "0", "aria-label": o.label } });
+      const svg = it.ownerDocument.createElementNS(SVG_NS2, "svg");
+      svg.setAttribute("viewBox", "0 0 112 80");
+      svg.setAttribute("class", "lg-pick-pic");
+      it.appendChild(svg);
+      o.draw(svg);
+      if (svg.querySelector("animate")) svg.ownerDocument.defaultView?.requestAnimationFrame(() => svg.setCurrentTime(0));
+      it.createDiv({ cls: "lg-pick-label", text: o.label });
+      const dot = it.createDiv({ cls: "lg-pick-dot" });
+      (0, import_obsidian4.setIcon)(dot, "check");
+      return it;
+    });
+    const mark = (v) => items.forEach((it, i) => {
+      it.toggleClass("is-picked", opts[i].value === v);
+      it.setAttribute("aria-checked", String(opts[i].value === v));
+    });
+    mark(cur);
+    items.forEach((it, i) => {
+      const pick = () => {
+        mark(opts[i].value);
+        void this.setControlValue(key, opts[i].value);
+      };
+      it.addEventListener("click", pick);
+      it.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          pick();
+        }
+      });
+    });
+  }
+  // 유리 투명도 미리 보기 (사용자 요청: 임시 문서 위에 알약을 띄워 슬라이더를 움직이며 체험). 줄 위쪽에 폭 전체로 둔다.
+  // 위에는 실제 편집창 위쪽과 같은 알약(뒤로·앞으로 .lg-tab-nav, 경로 .lg-path-pill, 읽기 모드 .lg-tab-mode)이 같은 클래스로 떠 있어
+  // 테마가 그 알약에 거는 유리·테두리·하이라이트·링 그림자·굴절을 그대로 받는다. 그 밑으로 실제 마크다운으로 그린 문서(콜아웃 포함)가 스크롤된다.
+  // 알약이 폭 전체에 걸리고, 처음엔 첫 콜아웃이 알약 밑에 오도록 조금 내려 둔다 (사용자 요청: 왼쪽 정렬 글자만으로는 비칠 것이 적다)
+  glassDemo(s) {
+    s.setClass("lg-gdemo-row");
+    const demo = createDiv({ cls: "lg-gdemo" });
+    s.settingEl.prepend(demo);
+    this.demoEl = demo;
+    window.requestAnimationFrame(() => this.syncDemoDoc());
+    const doc = demo.createDiv({ cls: "lg-gdemo-doc" });
+    const body = doc.createDiv({ cls: "markdown-rendered lg-gdemo-md" });
+    const md = tr(["# \uAC08\uBE44\uCC1C", "4\uC778\uBD84 \xB7 \uC57D 2\uC2DC\uAC04 30\uBD84. \uBA85\uC808\uC5D0\uB3C4, \uC8FC\uB9D0 \uC800\uB141\uC5D0\uB3C4 \uC88B\uC740 ==\uB2EC\uD070\uD55C \uAC04\uC7A5 \uC591\uB150== \uAC08\uBE44\uCC1C.", "", "> [!info] \uD55C\uB208\uC5D0 \uBCF4\uAE30", "> \uD54F\uBB3C \uBE7C\uAE30 \u2192 \uB370\uCE58\uAE30 \u2192 \uC7AC\uC6B0\uAE30 \u2192 \uCC0C\uAE30 \u2192 \uC878\uC774\uAE30. \uC774 \uC21C\uC11C\uB9CC \uAE30\uC5B5\uD558\uBA74 \uB429\uB2C8\uB2E4.", "", "## \uAC08\uBE44 \uACE0\uB974\uAE30", "- \uBF08\uC5D0 \uBD99\uC740 \uC0B4\uC774 \uB450\uD23C\uD558\uACE0 \uC9C0\uBC29\uC774 \uACE0\uB974\uAC8C \uBC15\uD78C \uAC83\uC744 \uACE0\uB985\uB2C8\uB2E4.", "- \uCC1C\uC6A9\uC740 \uD55C \uB300\uB97C 5~6cm \uAE38\uC774\uB85C \uC798\uB77C \uB2EC\uB77C\uACE0 \uD558\uBA74 \uD3B8\uD569\uB2C8\uB2E4.", "- \uB0C9\uB3D9 \uAC08\uBE44\uB294 \uD558\uB8E8 \uC804 \uB0C9\uC7A5\uC2E4\uB85C \uC62E\uACA8 \uCC9C\uCC9C\uD788 \uB179\uC785\uB2C8\uB2E4.", "", "## \uC7AC\uB8CC", "- [x] \uC18C\uAC08\uBE44 1.5kg", "- [x] \uBB34 1/3\uAC1C, \uB2F9\uADFC 1\uAC1C", "- [ ] \uD45C\uACE0\uBC84\uC12F 4\uAC1C", "- [ ] \uBC24 8\uC54C, \uB300\uCD94 6\uC54C", "- [ ] \uB300\uD30C 1\uB300, \uC740\uD589 10\uC54C", "- [ ] \uD1B5\uD6C4\uCD94 \uC57D\uAC04, \uC6D4\uACC4\uC218 \uC78E 2\uC7A5", "", "## \uC591\uB150", "| \uC7AC\uB8CC | \uBD84\uB7C9 |", "| --- | --- |", "| \uAC04\uC7A5 | 8\uD070\uC220 |", "| \uC124\uD0D5 | 3\uD070\uC220 |", "| \uAC04 \uBC30 | 1/2\uAC1C |", "| \uAC04 \uC591\uD30C | 1/2\uAC1C |", "| \uB2E4\uC9C4 \uB9C8\uB298 | 2\uD070\uC220 |", "| \uB2E4\uC9C4 \uC0DD\uAC15 | 1\uC791\uC740\uC220 |", "| \uB9DB\uC220 | 3\uD070\uC220 |", "| \uBB3C\uC5FF \xB7 \uCC38\uAE30\uB984 | 2\uD070\uC220 \xB7 1\uD070\uC220 |", "| \uD6C4\uCD94 | \uC57D\uAC04 |", "", "> [!note] \uBBF8\uB9AC \uD560 \uC77C", "> \uAC08\uBE44\uB294 \uCC2C\uBB3C\uC5D0 2\uC2DC\uAC04 \uB2F4\uAC00 \uD54F\uBB3C\uC744 \uBE8D\uB2C8\uB2E4. \uBB3C\uC740 \uB450\uC138 \uBC88 \uAC08\uC544 \uC8FC\uC138\uC694.", "> \uAE30\uB984 \uB369\uC5B4\uB9AC\uC640 \uBF1B\uAC00\uB8E8\uB294 \uCE7C\uB05D\uC73C\uB85C \uC815\uB9AC\uD574 \uB450\uBA74 \uAD6D\uBB3C\uC774 \uB9D1\uC544\uC9D1\uB2C8\uB2E4.", "", "## \uC190\uC9C8", "1. \uBB34\uC640 \uB2F9\uADFC\uC740 \uD07C\uC9C1\uD558\uAC8C \uC370\uACE0 \uBAA8\uC11C\uB9AC\uB97C \uB465\uAE00\uAC8C \uAE4E\uC2B5\uB2C8\uB2E4.", "2. \uD45C\uACE0\uB294 \uAE30\uB465\uC744 \uB5BC\uACE0 \uCE7C\uC9D1\uC744 \uB123\uC2B5\uB2C8\uB2E4.", "3. \uBC24\uC740 \uAECD\uC9C8\uC744 \uBC97\uAE30\uACE0, \uB300\uCD94\uB294 \uC528\uB97C \uBE8D\uB2C8\uB2E4.", "4. \uB300\uD30C\uB294 5cm \uAE38\uC774\uB85C \uC379\uB2C8\uB2E4.", "", "## \uB9CC\uB4E4\uAE30", "1. \uB053\uB294 \uBB3C\uC5D0 \uD1B5\uD6C4\uCD94, \uC6D4\uACC4\uC218 \uC78E\uACFC \uD568\uAED8 \uAC08\uBE44\uB97C 5\uBD84 \uB370\uCE69\uB2C8\uB2E4.", "2. \uAC74\uC838\uC11C \uCC2C\uBB3C\uC5D0 \uD558\uB098\uC529 \uD5F9\uAD88 \uBD88\uC21C\uBB3C\uC744 \uC53B\uC5B4\uB0C5\uB2C8\uB2E4.", "3. \uBB3C\uC5FF\uACFC \uCC38\uAE30\uB984\uC744 \uBE80 \uC591\uB150\uC744 \uBAA8\uB450 \uC11E\uC2B5\uB2C8\uB2E4.", "4. \uAC08\uBE44\uC5D0 \uC591\uB150\uC758 \uC808\uBC18\uC744 \uBC84\uBB34\uB824 30\uBD84 \uC7AC\uC6C1\uB2C8\uB2E4.", "5. \uB0C4\uBE44\uC5D0 \uAC08\uBE44, \uB0A8\uC740 \uC591\uB150, \uBB3C 3\uCEF5\uC744 \uB123\uACE0 \uC13C \uBD88\uB85C \uB053\uC785\uB2C8\uB2E4.", "6. \uB053\uC5B4\uC624\uB974\uBA74 \uC911\uC57D\uBD88\uB85C \uC904\uC774\uACE0 \uB69C\uAED1\uC744 \uB36E\uC5B4 **40\uBD84** \uC775\uD799\uB2C8\uB2E4.", "7. \uBB34, \uB2F9\uADFC, \uD45C\uACE0\uB97C \uB123\uACE0 20\uBD84 \uB354 \uC775\uD799\uB2C8\uB2E4.", "8. \uBC24, \uB300\uCD94, \uC740\uD589, \uBB3C\uC5FF\uC744 \uB123\uACE0 \uB69C\uAED1\uC744 \uC5F4\uC5B4 10\uBD84 \uC878\uC785\uB2C8\uB2E4.", "9. \uB300\uD30C\uB97C \uB123\uACE0 \uD55C\uC18C\uB054 \uB053\uC778 \uB4A4 \uCC38\uAE30\uB984\uC744 \uB450\uB985\uB2C8\uB2E4.", "", "> [!tip] \uD301", "> \uAD6D\uBB3C\uC744 \uD558\uB8FB\uBC24 \uC2DD\uD788\uBA74 \uC704\uC5D0 \uAE30\uB984\uC774 \uAD73\uC2B5\uB2C8\uB2E4. \uAC77\uC5B4 \uB0B4\uACE0 \uB370\uC6B0\uBA74 \uD6E8\uC52C \uAE54\uB054\uD569\uB2C8\uB2E4.", "", "## \uBD88 \uC870\uC808", "| \uB2E8\uACC4 | \uBD88 | \uC2DC\uAC04 |", "| --- | --- | --- |", "| \uCC98\uC74C \uB053\uC774\uAE30 | \uC13C \uBD88 | 10\uBD84 |", "| \uACE0\uAE30 \uC775\uD788\uAE30 | \uC911\uC57D\uBD88 | 40\uBD84 |", "| \uCC44\uC18C \uB123\uAE30 | \uC911\uC57D\uBD88 | 20\uBD84 |", "| \uC878\uC774\uAE30 | \uC911\uBD88 | 10\uBD84 |", "", "> [!warning] \uC8FC\uC758", "> \uBB3C\uC5FF\uC744 \uCC98\uC74C\uBD80\uD130 \uB123\uC73C\uBA74 \uBC14\uB2E5\uC774 \uD0C0\uAE30 \uC27D\uC2B5\uB2C8\uB2E4. \uB9C8\uC9C0\uB9C9\uC5D0 \uB123\uC73C\uC138\uC694.", "> \uC878\uC77C \uB54C\uB294 \uBC14\uB2E5\uC744 \uC790\uC8FC \uAE01\uC5B4 \uC8FC\uC138\uC694.", "", "## \uACC1\uB4E4\uC774\uAE30", "- [ ] \uD770\uC300\uBC25", "- [ ] \uBC30\uCD94\uAE40\uCE58, \uB3D9\uCE58\uBBF8", "- [ ] \uC2DC\uAE08\uCE58\uB098\uBB3C", "- [ ] \uB9D1\uC740 \uBB34\uAD6D"].join("\n"), ["# Galbi-jjim (Braised Short Ribs)", "Serves 4 \xB7 about 2\xBD hours. A dish for holidays or a weekend dinner, in a ==sweet soy glaze==.", "", "> [!info] At a glance", "> Soak \u2192 blanch \u2192 marinate \u2192 braise \u2192 reduce. Remember this order and you are set.", "", "## Choosing the ribs", "- Pick ribs with thick meat on the bone and evenly marbled fat.", "- Ask the butcher to cut them into 5\u20136 cm pieces for braising.", "- Move frozen ribs to the fridge a day ahead and thaw them slowly.", "", "## Ingredients", "- [x] 1.5 kg beef short ribs", "- [x] 1/3 Korean radish, 1 carrot", "- [ ] 4 shiitake mushrooms", "- [ ] 8 chestnuts, 6 jujubes", "- [ ] 1 green onion, 10 ginkgo nuts", "- [ ] A few peppercorns, 2 bay leaves", "", "## Sauce", "| Ingredient | Amount |", "| --- | --- |", "| Soy sauce | 8 tbsp |", "| Sugar | 3 tbsp |", "| Grated pear | 1/2 |", "| Grated onion | 1/2 |", "| Minced garlic | 2 tbsp |", "| Minced ginger | 1 tsp |", "| Cooking wine | 3 tbsp |", "| Rice syrup \xB7 sesame oil | 2 tbsp \xB7 1 tbsp |", "| Black pepper | A pinch |", "", "> [!note] Before you start", "> Soak the ribs in cold water for 2 hours to draw out the blood. Change the water two or three times.", "> Trim off lumps of fat and bone dust with the tip of a knife for a clearer broth.", "", "## Prep", "1. Cut the radish and carrot into large chunks and round off the edges.", "2. Remove the shiitake stems and score the caps.", "3. Peel the chestnuts and pit the jujubes.", "4. Cut the green onion into 5 cm lengths.", "", "## Steps", "1. Blanch the ribs for 5 minutes in boiling water with the peppercorns and bay leaves.", "2. Drain and rinse each piece in cold water to wash off impurities.", "3. Mix all the sauce ingredients except the rice syrup and sesame oil.", "4. Toss the ribs with half the sauce and marinate for 30 minutes.", "5. Put the ribs, the rest of the sauce and 3 cups of water in a pot and bring to a boil over high heat.", "6. Once it boils, lower to medium-low, cover and cook for **40 minutes**.", "7. Add the radish, carrot and shiitake and cook 20 minutes more.", "8. Add the chestnuts, jujubes, ginkgo nuts and rice syrup, uncover and reduce for 10 minutes.", "9. Add the green onion, bring to a boil once more, then drizzle with sesame oil.", "", "> [!tip] Tip", "> Cool the broth overnight and the fat sets on top. Skim it off before reheating for a much cleaner taste.", "", "## Heat guide", "| Stage | Heat | Time |", "| --- | --- | --- |", "| First boil | High | 10 min |", "| Cook the meat | Medium-low | 40 min |", "| Add vegetables | Medium-low | 20 min |", "| Reduce | Medium | 10 min |", "", "> [!warning] Warning", "> Rice syrup added at the start can scorch the bottom of the pot. Add it at the end.", "> Scrape the bottom often while reducing.", "", "## To serve with", "- [ ] Steamed white rice", "- [ ] Napa cabbage kimchi, dongchimi", "- [ ] Seasoned spinach", "- [ ] Clear radish soup"].join("\n"));
+    this.demoComp?.unload();
+    this.demoComp = new import_obsidian4.Component();
+    this.demoComp.load();
+    void import_obsidian4.MarkdownRenderer.render(this.app, md, body, "", this.demoComp).then(() => {
+      window.requestAnimationFrame(() => {
+        const c = body.querySelector(".callout");
+        if (c) doc.scrollTop = Math.max(0, c.offsetTop - 24);
+      });
+    });
+    const bar = demo.createDiv({ cls: "lg-gdemo-bar" });
+    const icon = (parent, cls, name) => {
+      const el = parent.createDiv({ cls: `clickable-icon ${cls}`.trim() });
+      (0, import_obsidian4.setIcon)(el, name);
+      return el;
+    };
+    const pills = [];
+    if (import_obsidian4.Platform.isPhone) {
+      const search = bar.createDiv({ cls: "lg-path-pill lg-gdemo-search" });
+      icon(search, "lg-path-menu", "search");
+      search.createDiv({ cls: "lg-path-text", text: tr("\uAC80\uC0C9", "Search") });
+      pills.push(search, icon(bar, "lg-tab-mode", "arrow-up-narrow-wide"));
+    } else {
+      const nav = bar.createDiv({ cls: "lg-tab-nav" });
+      icon(nav, "lg-tab-back", "arrow-left");
+      nav.createSpan({ cls: "lg-nav-sep" });
+      icon(nav, "lg-tab-forward", "arrow-right");
+      const path = bar.createDiv({ cls: "lg-path-pill" });
+      icon(path, "lg-path-menu", "menu");
+      path.createDiv({ cls: "lg-path-text", text: tr("Glass Shelf / \uC720\uB9AC \uBBF8\uB9AC \uBCF4\uAE30", "Glass Shelf / Glass preview") });
+      pills.push(nav, path, icon(bar, "lg-tab-mode", "book-open"));
+    }
+    const pl = this.plugin;
+    if (pl.refractOn()) for (const el of pills) pl.refractor.attach(el, 26, false);
+  }
+  // 미리 보기가 있는 문서가 플러그인이 다루는 창이 아니면(따로 뜬 설정 창) 그 문서에도 body 상태를 넣는다
+  syncDemoDoc() {
+    const doc = this.demoEl && this.demoEl.isConnected ? this.demoEl.ownerDocument : null;
+    if (doc && !this.plugin.docs.has(doc)) this.plugin.applyBodyState(doc);
+  }
+  // 컴팩트 모드 미리 보기 (사용자 요청): 단독 버튼(···)이 눌리고, 메뉴가 열리고, 항목 위를 차례로 지나가고, 다시 눌려 닫히는 것을
+  // 되풀이하는 그림. 실제 메뉴·이벤트를 쓰지 않고(실제 메뉴를 띄우니 사용자가 연 메뉴가 닫히는 등 방해가 됐다, 사용자 지적) 카드 안 요소에
+  // 애니메이션만 건다. 모양은 실제 메뉴와 같은 변수(--lg-menu-radius·--lg-menu-pad·--lg-menu-item-h·--lg-menu-item-r)를 쓰므로 이 기기의
+  // 설정(body.lg-rm)대로 둥근 메뉴 또는 네모난 메뉴가 보이고, 움직임도 그 설정을 따른다. 눌리지 않는다(styles.css pointer-events: none)
+  motionDemo(s) {
+    s.setClass("lg-mdemo-row");
+    this.motionStop?.();
+    const pl = this.plugin;
+    const demo = createDiv({ cls: "lg-mdemo" });
+    s.settingEl.prepend(demo);
+    const stage = demo.createDiv({ cls: "lg-mdemo-stage" });
+    const state = demo.createDiv({ cls: "lg-mdemo-state" });
+    const say = (on) => state.setText(on ? tr("\uC774 \uAE30\uAE30\uC5D0\uC11C\uB294 \uCEF4\uD329\uD2B8 \uBAA8\uB4DC\uAC00 \uCF1C\uC838 \uC788\uC2B5\uB2C8\uB2E4: \uBC84\uD2BC\uC774 \uC0B4\uC9DD \uCEE4\uC9C0\uACE0, \uBA54\uB274\uB294 \uC791\uACE0 \uB124\uBAA8\uB098\uAC8C \uBC14\uB85C \uC5F4\uB9BD\uB2C8\uB2E4.", "Compact mode is on for this device: buttons grow slightly and menus open right away as smaller, squarer panels.") : tr("\uC774 \uAE30\uAE30\uC5D0\uC11C\uB294 \uCEF4\uD329\uD2B8 \uBAA8\uB4DC\uAC00 \uAEBC\uC838 \uC788\uC2B5\uB2C8\uB2E4: \uBC84\uD2BC\uC774 \uD770\uC0C9\uC73C\uB85C \uBD80\uD480\uACE0, \uBA54\uB274\uB294 \uBC84\uD2BC\uC5D0\uC11C \uB113\uACE0 \uB465\uAE00\uAC8C \uD3BC\uCCD0\uC9C0\uBA70 \uD638\uBC84\uAC00 \uBBF8\uB044\uB7EC\uC838 \uB530\uB77C\uAC11\uB2C8\uB2E4.", "Compact mode is off for this device: buttons puff up in white, menus unfold wide and round from the button, and the hover slides along."));
+    say(pl.reduceMotion());
+    const btn = stage.createDiv({ cls: "clickable-icon lg-tab-mode lg-mdemo-btn" });
+    (0, import_obsidian4.setIcon)(btn, "ellipsis");
+    const menu = stage.createDiv({ cls: "lg-mdemo-menu" });
+    const hl = menu.createDiv({ cls: "lg-mdemo-hl" });
+    const items = [[tr("\uC0C8 \uB178\uD2B8", "New note"), "file-plus"], [tr("\uBCF5\uC0AC", "Copy"), "copy"], [tr("\uC774\uB984 \uBC14\uAFB8\uAE30", "Rename"), "pencil"]].map(([t, ic]) => {
+      const it = menu.createDiv({ cls: "lg-mdemo-item" });
+      (0, import_obsidian4.setIcon)(it.createSpan({ cls: "lg-mdemo-icon" }), ic);
+      it.createSpan({ text: t });
+      return it;
+    });
+    const win = stage.ownerDocument.defaultView || window;
+    let timer = 0;
+    let alive = true;
+    let visible = false;
+    const sleep = (ms) => new Promise((res) => timer = win.setTimeout(res, ms));
+    const io = new win.IntersectionObserver((es) => visible = es.some((x) => x.isIntersecting));
+    io.observe(stage);
+    const stop = () => {
+      if (!alive) return;
+      alive = false;
+      win.clearTimeout(timer);
+      io.disconnect();
+    };
+    this.motionStop = stop;
+    const EASE_SPRING = "cubic-bezier(0.3, 1.25, 0.5, 1)";
+    const press = (rm) => btn.animate(
+      rm ? [{ scale: "1" }, { scale: "1.08", offset: 0.4 }, { scale: "1" }] : [{ scale: "1", filter: "brightness(1)" }, { scale: "1.28", filter: "brightness(1.12)", offset: 0.45 }, { scale: "1", filter: "brightness(1)" }],
+      { duration: rm ? 260 : 500, easing: "ease-out" }
+    );
+    const origin = () => {
+      const b = btn.getBoundingClientRect();
+      const m = menu.getBoundingClientRect();
+      return `${(b.left + b.width / 2 - m.left).toFixed(1)}px ${(b.top + b.height / 2 - m.top).toFixed(1)}px`;
+    };
+    const hover = (i, rm) => {
+      items.forEach((it2, k) => it2.classList.toggle("is-hover", rm && k === i));
+      if (rm) return;
+      const it = items[i];
+      const first = !hl.classList.contains("is-on");
+      if (first) hl.classList.add("lg-no-tr");
+      hl.style.transform = `translateY(${it.offsetTop - menu.clientTop - parseFloat(getComputedStyle(menu).paddingTop)}px)`;
+      if (first) {
+        void hl.offsetWidth;
+        hl.classList.remove("lg-no-tr");
+      }
+      hl.classList.add("is-on");
+    };
+    const unhover = () => {
+      items.forEach((it) => it.classList.remove("is-hover"));
+      hl.classList.remove("is-on");
+    };
+    const loop = async () => {
+      await sleep(500);
+      while (alive && demo.isConnected) {
+        if (!visible) {
+          await sleep(500);
+          continue;
+        }
+        const rm = pl.reduceMotion();
+        demo.classList.toggle("lg-mdemo-rm", rm);
+        pl.menuHi(menu);
+        press(rm);
+        await sleep(rm ? 120 : 220);
+        menu.style.transformOrigin = rm ? "0 0" : origin();
+        menu.animate(
+          rm ? [{ opacity: 0, scale: "0.96" }, { opacity: 1, scale: "1" }] : [{ opacity: 0, scale: "0.2" }, { opacity: 1, scale: "1.03", offset: 0.7 }, { opacity: 1, scale: "1" }],
+          { duration: rm ? 120 : 380, easing: rm ? "ease-out" : EASE_SPRING, fill: "forwards" }
+        );
+        await sleep(rm ? 400 : 650);
+        menu.classList.add("is-still");
+        for (let i = 0; i < items.length && alive; i++) {
+          hover(i, rm);
+          await sleep(500);
+        }
+        unhover();
+        await sleep(300);
+        press(rm);
+        await sleep(rm ? 80 : 160);
+        menu.classList.remove("is-still");
+        menu.animate(
+          rm ? [{ opacity: 1 }, { opacity: 0 }] : [{ opacity: 1, scale: "1" }, { opacity: 0, scale: "0.2" }],
+          { duration: rm ? 100 : 220, easing: "ease-in", fill: "forwards" }
+        );
+        await sleep(1700);
+      }
+      stop();
+    };
+    void loop();
+    return say;
+  }
+  hide() {
+    super.hide();
+    this.demoComp?.unload();
+    this.demoComp = null;
+    this.motionStop?.();
+    this.motionStop = null;
   }
   getSettingDefinitions() {
     const st = this.plugin.settings;
     const toggle = (key, name, desc, visible = true) => ({ name, desc, visible, control: { type: "toggle", key } });
-    const dropdown = (key, name, desc, options) => {
+    const dropdown = (key, name, desc, options, visible = true) => {
       this.options.set(key, options);
-      return { name, desc, control: { type: "dropdown", key, options } };
+      return { name, desc, visible, control: { type: "dropdown", key, options } };
     };
     const sub = (name, desc, visible, fill) => ({
       name,
@@ -1159,9 +1447,10 @@ var GlassShelfSettingTab = class extends import_obsidian4.PluginSettingTab {
         items: [
           {
             name: tr("\uC720\uB9AC \uD22C\uBA85\uB3C4", "Glass opacity"),
-            desc: tr("\uC22B\uC790\uAC00 \uD074\uC218\uB85D \uC720\uB9AC\uAC00 \uB35C \uD22C\uBA85\uD574\uC9D1\uB2C8\uB2E4. 0\uC740 \uB9D1\uC740 \uC720\uB9AC\uC774\uACE0, 1~5\uB294 \uC720\uB9AC \uB4A4\uC758 \uB0B4\uC6A9\uC774 \uBC30\uACBD\uC0C9 \uCABD\uC73C\uB85C \uC810\uC810 \uC605\uC5B4\uC9C0\uBA70, 6~10\uC740 \uADF8 \uC704\uC5D0 \uC0C9\uC744 \uCC44\uC6CC \uC810\uC810 \uBFCC\uC607\uAC8C \uB9CC\uB4ED\uB2C8\uB2E4. \uBC84\uD2BC\uACFC \uD3B8\uC9D1\uCC3D \uC704\uCABD \uC720\uB9AC\uD310\uC5D0 \uC801\uC6A9\uB418\uBA70 \uBA54\uB274\uC640 \uD31D\uC5C5\uC740 \uC81C\uC678\uB429\uB2C8\uB2E4.", "Higher values make the glass less transparent. 0 is clear glass; 1\u20135 gradually fade what is behind the glass toward the background color; 6\u201310 add a fill on top that makes it increasingly frosted. Applies to buttons and the glass panel above the editor, not to menus and popups."),
+            desc: tr("\uC22B\uC790\uAC00 \uD074\uC218\uB85D \uC720\uB9AC\uAC00 \uB35C \uD22C\uBA85\uD574\uC9D1\uB2C8\uB2E4. 0\uC740 \uB9D1\uC740 \uC720\uB9AC\uC774\uACE0, 1~5\uB294 \uC720\uB9AC \uB4A4\uC758 \uB0B4\uC6A9\uC774 \uBC30\uACBD\uC0C9 \uCABD\uC73C\uB85C \uC810\uC810 \uC605\uC5B4\uC9C0\uBA70, 6~10\uC740 \uADF8 \uC704\uC5D0\uC11C \uC720\uB9AC \uB4A4\uB97C \uC810\uC810 \uD750\uB9AC\uAC8C \uB9CC\uB4ED\uB2C8\uB2E4. \uBC84\uD2BC, \uD3B8\uC9D1\uCC3D \uC704\uCABD \uC720\uB9AC\uD310, \uBA54\uB274\uC5D0 \uC801\uC6A9\uB429\uB2C8\uB2E4. \uD31D\uC5C5\uC740 6~10\uB2E8\uACC4\uC758 \uD750\uB9BC\uB9CC \uB530\uB77C\uAC11\uB2C8\uB2E4.", "Higher values make the glass less transparent. 0 is clear glass; 1\u20135 gradually fade what is behind the glass toward the background color; 6\u201310 also blur what is behind the glass more and more. Applies to buttons, the glass panel above the editor and menus. Popups follow only the blur of levels 6\u201310."),
             render: (s) => {
-              fresh(s).addSlider((slider) => slider.setLimits(0, 10, 1).setValue(st.glassLevel).onChange((v) => void this.setControlValue("glassLevel", v))).addExtraButton(
+              this.glassDemo(fresh(s));
+              s.addSlider((slider) => slider.setLimits(0, 10, 1).setValue(st.glassLevel).onChange((v) => void this.setControlValue("glassLevel", v))).addExtraButton(
                 (btn) => btn.setIcon("rotate-ccw").setTooltip(tr("\uAE30\uBCF8\uAC12\uC73C\uB85C \uB418\uB3CC\uB9AC\uAE30", "Restore default")).onClick(() => void this.setControlValue("glassLevel", DEFAULTS.glassLevel).then(() => this.update()))
               );
             }
@@ -1187,7 +1476,21 @@ var GlassShelfSettingTab = class extends import_obsidian4.PluginSettingTab {
           toggle("popupOpaque", tr("\uBD88\uD22C\uBA85\uD55C \uD31D\uC5C5", "Opaque popups"), tr("\uB300\uD654\uC0C1\uC790, \uBA85\uB839 \uD314\uB808\uD2B8, \uB9C1\uD06C \uBBF8\uB9AC\uBCF4\uAE30, \uC54C\uB9BC, \uD234\uD301 \uAC19\uC740 \uD31D\uC5C5\uC758 \uBC30\uACBD\uC785\uB2C8\uB2E4. \uB044\uBA74 \uBA54\uB274\uCC98\uB7FC \uB4A4\uAC00 \uC0B4\uC9DD \uBE44\uCE58\uACE0, \uCF1C\uBA74 \uBD88\uD22C\uBA85\uD558\uAC8C \uCC44\uC6C1\uB2C8\uB2E4.", "Background of popups such as dialogs, the command palette, link previews, notices and tooltips. Off: slightly see-through like menus. On: filled opaque.")),
           toggle("sideAcrylic", tr("\uC88C\uC6B0 \uD328\uB110 \uD22C\uBA85", "See-through side panels"), tr("\uC88C\uC6B0 \uD328\uB110 \uB4A4\uB85C \uBC14\uD0D5\uD654\uBA74\uACFC \uB2E4\uB978 \uCC3D\uC774 \uD750\uB9AC\uAC8C \uBE44\uCE69\uB2C8\uB2E4. Windows 11 22H2 \uC774\uC0C1\uC5D0\uC11C \uB3D9\uC791\uD558\uACE0, Windows \uC124\uC815\uC758 \uD22C\uBA85 \uD6A8\uACFC\uAC00 \uCF1C\uC838 \uC788\uC5B4\uC57C \uD569\uB2C8\uB2E4. \uCF1C\uBA74 \uD0ED \uC804\uD658 \uD6A8\uACFC\uB294 \uB80C\uC988 \uB300\uC2E0 \uC2EC\uD50C\uB85C \uBCF4\uC785\uB2C8\uB2E4. (Windows)", "Your desktop and other windows show through the left and right panels, blurred. Works on Windows 11 22H2 or later with transparency effects turned on in Windows settings. When on, the tab switch effect is shown as Simple instead of Lens. (Windows)"), import_obsidian4.Platform.isWin && !import_obsidian4.Platform.isMobile),
           toggle("refraction", tr("\uAD74\uC808", "Refraction"), tr("\uC720\uB9AC \uAC00\uC7A5\uC790\uB9AC\uC5D0\uC11C \uB4A4 \uBC30\uACBD\uC774 \uB80C\uC988\uCC98\uB7FC \uD718\uC5B4 \uBCF4\uC785\uB2C8\uB2E4. \uD654\uBA74\uC774 \uB290\uB824\uC9C0\uBA74 \uAEBC \uC8FC\uC138\uC694. iOS\uC640 iPadOS\uC5D0\uC11C\uB294 \uC9C0\uC6D0\uB418\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", "Bends the background at the glass edges like a lens. Turn off if the app feels slow. Not supported on iOS and iPadOS.")),
-          toggle("hoverLarge", tr("\uD070 \uD638\uBC84 \uD6A8\uACFC", "Large hover effect"), tr("\uBC84\uD2BC\uC5D0 \uB9C8\uC6B0\uC2A4\uB97C \uC62C\uB838\uC744 \uB54C \uB098\uD0C0\uB098\uB294 \uC720\uB9AC\uC758 \uD06C\uAE30\uC785\uB2C8\uB2E4. \uB044\uBA74 \uBC84\uD2BC\uC5D0 \uB9DE\uCDB0 \uC791\uAC8C, \uCF1C\uBA74 \uBC84\uD2BC \uBB36\uC74C\uC758 \uB192\uC774\uB9CC\uD07C \uD06C\uAC8C \uD45C\uC2DC\uB429\uB2C8\uB2E4.", "Size of the glass that appears when hovering a button. Off: fits the button. On: as tall as the button group.")),
+          (() => {
+            const opts = { off: tr("\uB054", "Off"), pc: tr("\uB370\uC2A4\uD06C\uD1B1\uB9CC", "Desktop only"), pcTablet: tr("\uB370\uC2A4\uD06C\uD1B1\xB7\uD0DC\uBE14\uB9BF", "Desktop and tablet") };
+            this.options.set("reduceMotion", opts);
+            return {
+              name: tr("\uCEF4\uD329\uD2B8 \uBAA8\uB4DC", "Compact mode"),
+              desc: tr("\uCEF4\uD329\uD2B8 \uBAA8\uB4DC\uB97C \uC4F8 \uAE30\uAE30\uC785\uB2C8\uB2E4. \uCF1C\uBA74 \uBA54\uB274\uAC00 \uC791\uACE0 \uB124\uBAA8\uB098\uAC8C \uB204\uB978 \uC790\uB9AC\uC5D0\uC11C \uBC14\uB85C \uC5F4\uB9AC\uACE0, \uB2E8\uB3C5 \uBC84\uD2BC\uC740 \uC0B4\uC9DD \uCEE4\uC84C\uB2E4 \uBC14\uB85C \uC791\uC544\uC9C0\uBA70 \uBC84\uD2BC \uBB36\uC74C\uC740 \uCEE4\uC9C0\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uBC84\uD2BC\uC5D0 \uC62C\uB9AC\uBA74 \uD638\uBC84\uC640 \uAE30\uD638\uAC00 \uCEE4\uC11C\uB97C \uB530\uB77C \uC870\uAE08\uB9CC \uC6C0\uC9C1\uC785\uB2C8\uB2E4. \uD3BC\uCCD0\uC9C0\uB294 \uAC80\uC0C9\uCC3D\uC740 \uD3BC\uCCD0\uC9C0\uB294 \uC6C0\uC9C1\uC784\uB9CC \uB0A8\uC2B5\uB2C8\uB2E4. \uB044\uBA74 \uBA54\uB274\uAC00 \uB113\uACE0 \uB465\uAE00\uAC8C \uBC84\uD2BC\uC5D0\uC11C \uD3BC\uCCD0\uC9C0\uACE0, \uBC84\uD2BC\uC774 \uD770\uC0C9\uC73C\uB85C \uD06C\uAC8C \uBD80\uD489\uB2C8\uB2E4. \uD734\uB300\uD3F0\uC740 \uB298 \uB048 \uC0C1\uD0DC\uC785\uB2C8\uB2E4.", "Devices that use compact mode. On: menus are smaller and squarer and open right where you click, single buttons grow slightly and shrink right away, and button groups do not grow. Hover highlights and icons follow the cursor only slightly. Expanding search fields keep only the expanding motion. Off: menus are wider and round and unfold from the button, and buttons puff up in white. Phones always use the off state."),
+              visible: !import_obsidian4.Platform.isPhone,
+              render: (s) => {
+                const say = this.motionDemo(fresh(s));
+                s.addDropdown(
+                  (d) => d.addOptions(opts).setValue(this.getControlValue("reduceMotion")).onChange((v) => void this.setControlValue("reduceMotion", v).then(() => say(this.plugin.reduceMotion())))
+                );
+              }
+            };
+          })(),
           toggle("compactWindowControls", tr("\uCC3D \uC81C\uC5B4 \uBC84\uD2BC \uCD95\uC18C", "Compact window controls"), tr("\uCD5C\uC18C\uD654, \uCD5C\uB300\uD654, \uB2EB\uAE30 \uBC84\uD2BC\uC744 \uD3C9\uC18C\uC5D0\uB294 \uC791\uC740 \uC810\uC73C\uB85C \uC904\uC5EC \uB450\uACE0, \uB9C8\uC6B0\uC2A4\uB97C \uC62C\uB9AC\uBA74 \uC6D0\uB798 \uD06C\uAE30\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4. \uC904\uC5B4\uB4E0 \uB9CC\uD07C \uD0ED \uC904\uC774 \uB113\uC5B4\uC9D1\uB2C8\uB2E4. (Windows, Linux)", "Shrinks the minimize, maximize and close buttons to small dots until you hover them. The tab bar gets the freed space. (Windows, Linux)"), !import_obsidian4.Platform.isMobile)
         ]
       },
@@ -1195,7 +1498,15 @@ var GlassShelfSettingTab = class extends import_obsidian4.PluginSettingTab {
         type: "group",
         heading: tr("\uD3B8\uC9D1\uCC3D", "Editor"),
         items: [
-          toggle("showPath", tr("\uACBD\uB85C \uD45C\uC2DC", "Show path"), tr("\uD3B8\uC9D1\uCC3D \uD0ED \uC904 \uC704\uCABD \uAC00\uC6B4\uB370\uC5D0 \uD604\uC7AC \uBB38\uC11C\uC758 \uACBD\uB85C\uB97C \uD45C\uC2DC\uD558\uACE0, \uD0ED\uC740 \uADF8 \uC544\uB798 \uC904\uC5D0 \uC88C\uC6B0 \uD3ED\uC744 \uBAA8\uB450 \uC368\uC11C \uBC30\uCE58\uD569\uB2C8\uB2E4. \uD3F4\uB354 \uC774\uB984\uC744 \uB204\uB974\uBA74 \uD30C\uC77C \uD0D0\uC0C9\uAE30\uC5D0\uC11C \uD574\uB2F9 \uD3F4\uB354\uB97C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4. (\uB370\uC2A4\uD06C\uD1B1, \uD0DC\uBE14\uB9BF)", "Shows the current note's path at the top center of the editor tab bar and moves the tabs to a full-width row below. Click a folder name to reveal it in the file explorer. (Desktop, tablet)"), !import_obsidian4.Platform.isPhone),
+          {
+            name: tr("\uACBD\uB85C \uD45C\uC2DC", "Show path"),
+            desc: tr("\uACBD\uB85C \uD45C\uC2DC\uB97C \uACE0\uB974\uBA74 \uD3B8\uC9D1\uCC3D \uD0ED \uC904 \uC704\uCABD \uAC00\uC6B4\uB370\uC5D0 \uD604\uC7AC \uBB38\uC11C\uC758 \uACBD\uB85C\uB97C \uD45C\uC2DC\uD558\uACE0, \uD0ED\uC740 \uADF8 \uC544\uB798 \uC904\uC5D0 \uC88C\uC6B0 \uD3ED\uC744 \uBAA8\uB450 \uC368\uC11C \uBC30\uCE58\uD569\uB2C8\uB2E4. \uD3F4\uB354 \uC774\uB984\uC744 \uB204\uB974\uBA74 \uD30C\uC77C \uD0D0\uC0C9\uAE30\uC5D0\uC11C \uD574\uB2F9 \uD3F4\uB354\uB97C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4. (\uB370\uC2A4\uD06C\uD1B1, \uD0DC\uBE14\uB9BF)", "Show path: shows the current note's path at the top center of the editor tab bar and moves the tabs to a full-width row below. Click a folder name to reveal it in the file explorer. (Desktop, tablet)"),
+            visible: !import_obsidian4.Platform.isPhone,
+            render: (s) => this.pickRow(fresh(s), "showPath", [
+              { value: true, label: tr("\uACBD\uB85C \uD45C\uC2DC", "Show path"), draw: (svg) => drawTabBar(svg, true) },
+              { value: false, label: tr("\uD55C \uC904", "One row"), draw: (svg) => drawTabBar(svg, false) }
+            ])
+          },
           toggle("miniBar", tr("\uC2A4\uD06C\uB864 \uC2DC \uD0ED \uC904 \uCD95\uC18C", "Collapse tab bar on scroll"), tr("\uD3B8\uC9D1\uCC3D\uC744 \uC544\uB798\uB85C \uC2A4\uD06C\uB864\uD558\uBA74 \uD0ED \uC904\uC744 \uC811\uACE0 \uD604\uC7AC \uBB38\uC11C \uC81C\uBAA9\uB9CC \uC791\uAC8C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uC704\uB85C \uC2A4\uD06C\uB864\uD558\uAC70\uB098 \uC81C\uBAA9\uC744 \uB204\uB974\uBA74 \uB2E4\uC2DC \uD3BC\uCE69\uB2C8\uB2E4. (\uB370\uC2A4\uD06C\uD1B1, \uD0DC\uBE14\uB9BF)", "Scrolling down in the editor collapses the tab bar to a small title of the current note. Scroll up or click the title to expand it again. (Desktop, tablet)"), !import_obsidian4.Platform.isPhone),
           toggle("webTint", tr("\uBAB0\uC785\uD615 \uC6F9 \uBCF4\uAE30", "Immersive web view"), tr("\uC6F9 \uBDF0\uC5B4\uC5D0\uC11C \uD398\uC774\uC9C0\uAC00 \uD0ED \uC904 \uB4A4\uB85C \uC9C0\uB098\uAC00\uAC8C \uD558\uACE0, \uD0ED \uC904\uACFC \uBC84\uD2BC\uC744 \uD398\uC774\uC9C0\uC758 \uB300\uD45C \uC0C9\uC73C\uB85C \uCE60\uD569\uB2C8\uB2E4. (\uB370\uC2A4\uD06C\uD1B1, \uD0DC\uBE14\uB9BF)", "In the web viewer, lets the page scroll behind the tab bar and colors the tab bar and its buttons with the page's theme color. (Desktop, tablet)"), !import_obsidian4.Platform.isPhone),
           toggle("headingRule", tr("\uC81C\uBAA9 \uC544\uB798 \uAC00\uB85C\uC904", "Line under headings"), tr("\uC81C\uBAA9(H1~H6) \uC544\uB798\uC5D0 \uC587\uC740 \uAC00\uB85C\uC904\uC744 \uAE0B\uC2B5\uB2C8\uB2E4. \uB77C\uC774\uD2B8 \uBAA8\uB4DC\uC5D0\uC11C\uB294 \uAC80\uC740\uC0C9, \uB2E4\uD06C \uBAA8\uB4DC\uC5D0\uC11C\uB294 \uD770\uC0C9\uC785\uB2C8\uB2E4.", "Draws a thin line under headings (H1\u2013H6). Black in light mode, white in dark mode."))
@@ -1205,11 +1516,21 @@ var GlassShelfSettingTab = class extends import_obsidian4.PluginSettingTab {
         type: "group",
         heading: tr("\uC0AC\uC774\uB4DC\uBC14 \uD0ED", "Sidebar tabs"),
         items: [
-          dropdown("tabAnim", tr("\uD0ED \uC804\uD658 \uD6A8\uACFC", "Tab switch effect"), tr("\uB80C\uC988: \uC120\uD0DD \uD45C\uC2DC\uAC00 \uB80C\uC988\uCC98\uB7FC \uBBF8\uB044\uB7EC\uC9C0\uBA70 \uC62E\uACA8 \uAC11\uB2C8\uB2E4. \uC2EC\uD50C: \uD6A8\uACFC \uC5C6\uC774 \uC120\uD0DD\uD55C \uD0ED\uC744 \uAC15\uC870\uC0C9\uC73C\uB85C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uBAA9\uB85D: \uD0ED\uC744 \uBC84\uD2BC \uC904 \uC544\uB798\uC5D0 \uD55C \uC904\uC5D0 \uD558\uB098\uC529 \uB298\uC5B4\uB193\uACE0, \uC120\uD0DD\uD55C \uD0ED\uC744 \uAC15\uC870\uC0C9\uC73C\uB85C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uC88C\uC6B0 \uD328\uB110 \uD22C\uBA85\uC774 \uCF1C\uC838 \uC788\uC73C\uBA74 \uB80C\uC988 \uB300\uC2E0 \uC2EC\uD50C\uB85C \uBCF4\uC785\uB2C8\uB2E4. (\uBAA9\uB85D\uC740 \uB370\uC2A4\uD06C\uD1B1, \uD0DC\uBE14\uB9BF)", "Lens: the selection slides over like a lens. Simple: no effect; the selected tab is shown in the accent color. List: tabs are listed one per row below the button row, and the selected tab is shown in the accent color. With transparent side panels on, Simple is shown instead of Lens. (List: desktop, tablet)"), {
-            lens: tr("\uB80C\uC988", "Lens"),
-            none: tr("\uC2EC\uD50C (\uAC15\uC870\uC0C9)", "Simple (accent color)"),
-            ...import_obsidian4.Platform.isPhone ? {} : { list: tr("\uBAA9\uB85D", "List") }
-          }),
+          (() => {
+            const move = true;
+            const anims = [
+              // 좌우 패널 투명이 켜져 있으면 렌즈는 심플로 보이므로 고를 수 없게 뺀다 (사용자 요청)
+              ...st.sideAcrylic && import_obsidian4.Platform.isWin && !import_obsidian4.Platform.isMobile ? [] : [{ value: "lens", label: tr("\uB80C\uC988", "Lens"), draw: (svg) => drawTabAnim(svg, "lens", move) }],
+              { value: "none", label: tr("\uC2EC\uD50C", "Simple"), draw: (svg) => drawTabAnim(svg, "none", move) },
+              ...import_obsidian4.Platform.isPhone ? [] : [{ value: "list", label: tr("\uBAA9\uB85D", "List"), draw: (svg) => drawTabAnim(svg, "list", move) }]
+            ];
+            this.options.set("tabAnim", Object.fromEntries(anims.map((a) => [a.value, a.label])));
+            return {
+              name: tr("\uD0ED \uC804\uD658 \uD6A8\uACFC", "Tab switch effect"),
+              desc: tr("\uB80C\uC988: \uC120\uD0DD \uD45C\uC2DC\uAC00 \uB80C\uC988\uCC98\uB7FC \uBBF8\uB044\uB7EC\uC9C0\uBA70 \uC62E\uACA8 \uAC11\uB2C8\uB2E4. \uC2EC\uD50C: \uD6A8\uACFC \uC5C6\uC774 \uC120\uD0DD\uD55C \uD0ED\uC744 \uAC15\uC870\uC0C9\uC73C\uB85C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uBAA9\uB85D: \uD0ED\uC744 \uBC84\uD2BC \uC904 \uC544\uB798\uC5D0 \uD55C \uC904\uC5D0 \uD558\uB098\uC529 \uB298\uC5B4\uB193\uACE0, \uC120\uD0DD\uD55C \uD0ED\uC744 \uAC15\uC870\uC0C9\uC73C\uB85C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uC88C\uC6B0 \uD328\uB110 \uD22C\uBA85\uC774 \uCF1C\uC838 \uC788\uC73C\uBA74 \uB80C\uC988 \uB300\uC2E0 \uC2EC\uD50C\uB85C \uBCF4\uC785\uB2C8\uB2E4. (\uBAA9\uB85D\uC740 \uB370\uC2A4\uD06C\uD1B1, \uD0DC\uBE14\uB9BF)", "Lens: the selection slides over like a lens. Simple: no effect; the selected tab is shown in the accent color. List: tabs are listed one per row below the button row, and the selected tab is shown in the accent color. With transparent side panels on, Simple is shown instead of Lens. (List: desktop, tablet)"),
+              render: (s) => this.pickRow(fresh(s), "tabAnim", anims)
+            };
+          })(),
           // 목록을 고르면 바로 밑에 (하위 항목 표시 없이, 사용자 요청)
           {
             name: tr("\uBAA9\uB85D\uC744 \uC4F8 \uD328\uB110", "Panels using the list"),
@@ -1235,7 +1556,7 @@ var GlassShelfSettingTab = class extends import_obsidian4.PluginSettingTab {
         type: "group",
         heading: tr("\uD1A0\uAE00\uACFC \uCCB4\uD06C\uBC15\uC2A4", "Toggles and checkboxes"),
         items: [
-          toggle("iosColors", tr("\uD1A0\uAE00\xB7\uC2AC\uB77C\uC774\uB354 iOS \uC0C9\uC0C1", "iOS colors for toggles and sliders"), tr("\uCF1C\uBA74 \uD1A0\uAE00\uC740 \uCD08\uB85D\uC0C9, \uC2AC\uB77C\uC774\uB354\uB294 \uD30C\uB780\uC0C9\uC73C\uB85C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uB044\uBA74 \uB458 \uB2E4 \uAC15\uC870\uC0C9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4.", "On: toggles are green and sliders are blue. Off: both use the accent color.")),
+          toggle("iosColors", tr("\uD1A0\uAE00 \uCD08\uB85D\xB7\uC2AC\uB77C\uC774\uB354 \uD30C\uB791", "Green toggles, blue sliders"), tr("\uCF1C\uBA74 \uD1A0\uAE00\uC740 \uCD08\uB85D\uC0C9, \uC2AC\uB77C\uC774\uB354\uB294 \uD30C\uB780\uC0C9\uC73C\uB85C \uD45C\uC2DC\uD569\uB2C8\uB2E4. \uB044\uBA74 \uB458 \uB2E4 \uAC15\uC870\uC0C9\uC744 \uC0AC\uC6A9\uD569\uB2C8\uB2E4.", "On: toggles are green and sliders are blue. Off: both use the accent color.")),
           dropdown("taskStyle", tr("\uD560 \uC77C \uCCB4\uD06C\uBC15\uC2A4 \uBAA8\uC591", "Task checkbox style"), tr("\uCCB4\uD06C: \uC0C9\uC774 \uCC44\uC6CC\uC9C4 \uC6D0\uC5D0 \uCCB4\uD06C \uD45C\uC2DC\uAC00 \uB098\uD0C0\uB0A9\uB2C8\uB2E4. \uB9C1: \uD14C\uB450\uB9AC \uC6D0 \uC548\uC5D0 \uC791\uC740 \uC6D0\uC774 \uB098\uD0C0\uB0A9\uB2C8\uB2E4.", "Check: a filled circle with a check mark. Ring: a small dot inside an outlined circle."), {
             check: tr("\uCCB4\uD06C", "Check"),
             ring: tr("\uB9C1", "Ring")
@@ -1595,6 +1916,9 @@ var coreMethods = {
       for (const doc of this.docs) this.snapTabBars(doc);
     }));
     this.registerEvent(this.app.workspace.on("active-leaf-change", refresh));
+    this.app.workspace.onLayoutReady(() => this.learnViewIcons());
+    if (import_obsidian5.Platform.isDesktop) this.app.workspace.onLayoutReady(() => window.setTimeout(() => this.checkHostDom(), 2e3));
+    this.registerEvent(this.app.workspace.on("layout-change", () => this.learnViewIcons()));
     this.registerEvent(this.app.workspace.on("file-open", refresh));
     this.registerEvent(this.app.workspace.on("css-change", refresh));
     this.registerEvent(this.app.workspace.on("css-change", () => {
@@ -1773,22 +2097,87 @@ var coreMethods = {
     this.folderLine = `url("data:image/svg+xml,${encodeURIComponent(new XMLSerializer().serializeToString(svg))}")`;
     return this.folderLine;
   },
+  // 알약 유리의 밝기 곡선 층 (사용자 요청: 라이트에서 뒤의 검은색이 바탕색 쪽으로 더 많이 옮겨 가게).
+  // 채움(바탕색을 고르게 덮음)만으로는 어두운 것과 밝은 것이 같은 비율로 옅어진다. 그 앞에 밝기 곡선(SVG feComponentTransfer 표)을 걸어
+  // 라이트는 어두울수록 더 많이 끌어올리고, 다크는 밝을수록 더 많이 끌어내린다 (감마 곡선은 순수한 검정을 그대로 둬서 바꿨다). 테마는 --lg-lift-l·-d 를
+  // 알약 흐림 사슬(--lg-haze)에 넣는다. 플러그인이 필터를 넣은 문서에만 변수를 붙인다(없으면 비워 둬 필터 사슬이 깨지지 않게).
+  // 모바일은 알약 필터를 꺼 두는 것과 같은 까닭(매 프레임 뒤를 떠 옴)으로 뺀다. 애플 기기는 url() 필터를 못 써 원래 안 걸린다
+  applyLift(doc) {
+    const b = doc.body;
+    if (!b) return;
+    if (import_obsidian5.Platform.isMobile) {
+      b.style.removeProperty("--lg-lift-l");
+      b.style.removeProperty("--lg-lift-d");
+      return;
+    }
+    const NS = "http://www.w3.org/2000/svg";
+    if (!doc.getElementById("lg-lift-defs")) {
+      const host = doc.createElementNS(NS, "svg");
+      host.id = "lg-lift-defs";
+      host.setAttribute("class", INJECTED);
+      host.setAttribute("aria-hidden", "true");
+      host.setAttribute("color-interpolation-filters", "sRGB");
+      host.setCssProps({ position: "absolute", width: "0", height: "0" });
+      const defs = doc.createElementNS(NS, "defs");
+      const curve = (light) => Array.from({ length: 33 }, (_, i) => {
+        const v = i / 32;
+        if (light) {
+          const k2 = LIFT_KEEP_LIGHT;
+          if (v >= k2) return v.toFixed(4);
+          const u2 = v / k2;
+          return (k2 - (k2 - LIFT_BLACK) * (1 - u2) * (1 - u2)).toFixed(4);
+        }
+        const k = LIFT_KEEP_DARK;
+        if (v <= k) return v.toFixed(4);
+        const u = (v - k) / (1 - k);
+        return (k + (LIFT_WHITE - k) * (1 - (1 - u) * (1 - u))).toFixed(4);
+      }).join(" ");
+      for (const [id, vals] of [["lg-lift-l", curve(true)], ["lg-lift-d", curve(false)]]) {
+        const f = doc.createElementNS(NS, "filter");
+        f.id = id;
+        const t = doc.createElementNS(NS, "feComponentTransfer");
+        for (const ch of ["R", "G", "B"]) {
+          const fn = doc.createElementNS(NS, `feFunc${ch}`);
+          fn.setAttribute("type", "table");
+          fn.setAttribute("tableValues", vals);
+          t.appendChild(fn);
+        }
+        f.appendChild(t);
+        defs.appendChild(f);
+      }
+      host.appendChild(defs);
+      b.appendChild(host);
+      this.register(() => host.remove());
+    }
+    b.setCssProps({ "--lg-lift-l": "url(#lg-lift-l)", "--lg-lift-d": "url(#lg-lift-d)" });
+  },
+  // 플러그인이 기대는 Obsidian 화면 요소(HOST_DOM)가 없으면 콘솔에 남긴다. 업데이트로 이름이 바뀌면 기능이 소리 없이 빠지기 때문이다 (검토 지적)
+  checkHostDom() {
+    if (this.unloaded) return;
+    const missing = HOST_DOM.filter((sel) => !document.querySelector(sel));
+    if (missing.length) console.warn("[glass-shelf] Obsidian \uD654\uBA74 \uC694\uC18C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC77C\uBD80 \uAE30\uB2A5\uC774 \uB3D9\uC791\uD558\uC9C0 \uC54A\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4:", missing.join(" | "));
+  },
   applyBodyState(doc) {
     const b = doc.body;
     if (!b) return;
     b.classList.add("lg-ui");
     b.classList.toggle("lg-tg-accent", this.settings.toggleColor === "accent");
     const g = this.settings.glassLevel;
-    const f = g <= 0 ? 0 : 0.45 + (Math.min(g, 5) - 1) * 0.35 / 4;
+    const f = g <= 0 ? 0 : g <= 5 ? 0.45 + (g - 1) * 0.2625 / 4 : 0.5375 + (g - 5) * 0.0125;
     b.style.setProperty("--lg-fade", String(+f.toFixed(4)));
-    b.style.setProperty("--lg-frost", String(Math.max(0, g - 5) / 10 * 0.3));
-    b.style.setProperty("--lg-hover-k", this.settings.hoverLarge ? "1" : "0");
+    b.setCssProps({ "--lg-frost": "0" });
+    if (g > 5) b.style.setProperty("--lg-pill-blur", `blur(${g - 2}px)`);
+    else b.style.removeProperty("--lg-pill-blur");
+    if (g > 5) b.style.setProperty("--lg-menu-blur", `${g - 2}px`);
+    else b.style.removeProperty("--lg-menu-blur");
     b.classList.toggle("lg-show-path", !!this.settings.showPath);
     b.classList.toggle("lg-web-under", !!this.settings.webTint && !import_obsidian5.Platform.isPhone);
     b.classList.toggle("lg-mini-bar", !!this.settings.miniBar);
     b.classList.toggle("lg-pop-opaque", !!this.settings.popupOpaque);
+    b.classList.toggle("lg-rm", this.reduceMotion());
     b.classList.toggle("lg-wc-compact", !!this.settings.compactWindowControls);
     this.applyDevicePx(doc);
+    this.applyLift(doc);
     const s = this.settings;
     const color = s.tint === "accent" ? "var(--interactive-accent)" : s.tint === "obsidian" ? OBSIDIAN_PURPLE : s.tintColor;
     b.classList.toggle("lg-tinted", s.tint !== "none");
@@ -1837,6 +2226,13 @@ var coreMethods = {
       doc.querySelectorAll(".lg-kb-searching").forEach((el) => el.classList.remove("lg-kb-searching"));
       doc.querySelectorAll(".lg-kb-search-btn").forEach((el) => el.classList.remove("lg-kb-search-btn"));
       doc.querySelectorAll(".lg-dashed").forEach((el) => el.classList.remove("lg-dashed"));
+      if (doc.body) doc.body.classList.remove("lg-menu-open");
+      doc.querySelectorAll(".nav-file-title[data-lg-type], .nav-file-title.lg-glyph").forEach((el) => {
+        delete el.dataset.lgType;
+        el.classList.remove("lg-glyph");
+        el.style.removeProperty("--lg-glyph");
+      });
+      if (doc.body) for (const p of [...doc.body.style].filter((n) => n.startsWith("--lg-glyph-v-"))) doc.body.style.removeProperty(p);
       doc.querySelectorAll(".bases-toolbar .lg-on").forEach((el) => el.classList.remove("lg-on"));
       doc.querySelectorAll(".lg-tab-tools").forEach((g) => {
         while (g.firstChild) g.parentElement.insertBefore(g.firstChild, g);
@@ -2091,13 +2487,40 @@ var eventsMethods = {
     const win = doc.defaultView || window;
     if (!import_obsidian6.Platform.isMobile) this.attachDragScroll(doc, win);
     this.applyBodyState(doc);
+    this.attachModalWatch(doc, win);
+    this.attachExplorerFocus(doc, win);
+    this.attachScrollWatch(doc, win);
+    this.attachStatusHeight(doc, win);
+    this.attachWcHover(doc, win);
+    this.attachMagnet(doc, win);
+    this.attachPressFx(doc, win);
+    this.attachKanbanEvents(doc, win);
+    this.attachMenuEvents(doc, win);
+    this.attachCanvasEvents(doc, win);
+    this.attachTabUnlock(doc, win);
+    this.attachHeadSearch(doc, win);
+    this.attachGraphEvents(doc, win);
+    this.attachToggleSlider(doc, win);
+    this.attachPanelTabScroll(doc, win);
+    this.attachTaskEvents(doc, win);
+    this.attachTitleWatch(doc, win);
+  },
+  // 설정 창 등 창과 Bases 툴바 메뉴의 드롭다운 줄 표시
+  attachModalWatch(doc, win) {
     const watchModal = (m) => {
       if (!m.classList || !(m.classList.contains("modal-container") || m.classList.contains("bases-toolbar-menu"))) return;
       if (!this.ddWatched) this.ddWatched = /* @__PURE__ */ new WeakSet();
       if (this.ddWatched.has(m)) return;
       this.ddWatched.add(m);
       this.markDropdownRows(m);
-      const o = new win.MutationObserver(() => this.markDropdownRows(m));
+      let pend = 0;
+      const o = new win.MutationObserver(() => {
+        if (pend) return;
+        pend = win.requestAnimationFrame(() => {
+          pend = 0;
+          if (m.isConnected) this.markDropdownRows(m);
+        });
+      });
       o.observe(m, { childList: true, subtree: true });
       this.observers.push(o);
     };
@@ -2105,6 +2528,9 @@ var eventsMethods = {
     const bodyObs = new win.MutationObserver((recs) => recs.forEach((r) => r.addedNodes.forEach(watchModal)));
     bodyObs.observe(doc.body, { childList: true });
     this.observers.push(bodyObs);
+  },
+  // 마지막으로 누른 곳(파일 탐색기·좌우 패널) 표시
+  attachExplorerFocus(doc, win) {
     this.registerDomEvent(
       doc,
       "pointerdown",
@@ -2121,6 +2547,9 @@ var eventsMethods = {
       doc.body.classList.remove("lg-explorer-on");
       doc.querySelectorAll(".lg-split-on").forEach((s) => s.classList.remove("lg-split-on"));
     });
+  },
+  // 스크롤: 탭 줄 접기, 메뉴 밖 휠로 메뉴 닫기, 스크롤하는 동안만 스크롤바
+  attachScrollWatch(doc, win) {
     if (!import_obsidian6.Platform.isPhone) this.registerDomEvent(doc, "scroll", (e) => this.onMiniScroll(e.target), { capture: true, passive: true });
     if (!import_obsidian6.Platform.isPhone)
       this.registerDomEvent(
@@ -2128,12 +2557,37 @@ var eventsMethods = {
         "wheel",
         (e) => {
           const t = e.target;
-          if (isEl(t) && t.closest(".menu")) return;
+          if (isEl(t) && t.closest(".menu, .suggestion-container")) return;
           if (doc.body.querySelector(":scope > .menu:not(.lg-menu-ghost)"))
             doc.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true, cancelable: true }));
         },
         { capture: true, passive: true }
       );
+    this.registerDomEvent(
+      doc,
+      "scroll",
+      (e) => {
+        const t = e.target;
+        if (!isEl(t)) return;
+        t.lgScrollAt = win.performance.now();
+        if (t.lgScrollTimer) return;
+        t.classList.add("lg-scrolling");
+        const check = () => {
+          const left = 900 - (win.performance.now() - t.lgScrollAt);
+          if (left > 0) {
+            t.lgScrollTimer = win.setTimeout(check, left);
+          } else {
+            t.lgScrollTimer = null;
+            t.classList.remove("lg-scrolling");
+          }
+        };
+        t.lgScrollTimer = win.setTimeout(check, 900);
+      },
+      { capture: true, passive: true }
+    );
+  },
+  // 상태 표시줄 높이를 body 에 알린다
+  attachStatusHeight(doc, win) {
     if (!import_obsidian6.Platform.isMobile) {
       const sb = doc.querySelector(".status-bar");
       if (sb) {
@@ -2149,6 +2603,9 @@ var eventsMethods = {
         syncStatus();
       }
     }
+  },
+  // 창 제어 알약 호버
+  attachWcHover(doc, win) {
     let wcTimer = 0;
     const inWc = (t) => t instanceof win.Element && !!t.closest(".titlebar-button-container.mod-right");
     this.registerDomEvent(doc, "pointerover", (e) => {
@@ -2165,6 +2622,9 @@ var eventsMethods = {
         wcTimer = win.setTimeout(() => this.wcRefract(doc, false), 160);
       }, 150);
     }, { passive: true });
+  },
+  // 호버 유리 자석
+  attachMagnet(doc, win) {
     let magnetEl = null;
     let magnetFrame = null;
     let lastMove = null;
@@ -2222,8 +2682,9 @@ var eventsMethods = {
           const away = r.near && (Math.abs(rx) > 1 || Math.abs(ry) > 1);
           const nx = away ? 0 : Math.max(-1, Math.min(1, rx));
           const ny = away ? 0 : Math.max(-1, Math.min(1, ry));
-          const mx = nx * Math.min(7, r.width * 0.12);
-          const my = ny * Math.min(4, r.height * 0.14);
+          const k = this.reduceMotion() ? MAGNET_COMPACT : 1;
+          const mx = nx * Math.min(7, r.width * 0.12) * k;
+          const my = ny * Math.min(4, r.height * 0.14) * k;
           el.style.setProperty("--lg-mx", `${mx.toFixed(1)}px`);
           el.style.setProperty("--lg-my", `${my.toFixed(1)}px`);
         });
@@ -2231,216 +2692,9 @@ var eventsMethods = {
       { passive: true }
     );
     this.register(() => resetMagnet(magnetEl));
-    this.registerDomEvent(
-      doc,
-      "scroll",
-      (e) => {
-        const t = e.target;
-        if (!isEl(t)) return;
-        t.lgScrollAt = win.performance.now();
-        if (t.lgScrollTimer) return;
-        t.classList.add("lg-scrolling");
-        const check = () => {
-          const left = 900 - (win.performance.now() - t.lgScrollAt);
-          if (left > 0) {
-            t.lgScrollTimer = win.setTimeout(check, left);
-          } else {
-            t.lgScrollTimer = null;
-            t.classList.remove("lg-scrolling");
-          }
-        };
-        t.lgScrollTimer = win.setTimeout(check, 900);
-      },
-      { capture: true, passive: true }
-    );
-    const pressFx = (e) => {
-      if (e.button !== 0 || !isEl(e.target)) return;
-      const menuItem = e.target.closest(".menu .menu-item:not(.is-disabled):not(.is-label)");
-      if (menuItem) {
-        const menu = menuItem.closest(".menu");
-        const m = menu.getBoundingClientRect();
-        const far = Math.hypot(Math.max(e.clientX - m.left, m.right - e.clientX), Math.max(e.clientY - m.top, m.bottom - e.clientY));
-        return this.pressRipple(menu, e, far * 2 / 0.8, "lg-ripple-menu", true, MENU_RIPPLE_FROM);
-      }
-      const kbAdd = e.target.closest(".kanban-plugin__new-item-button");
-      if (kbAdd) return this.pressKanbanAdd(kbAdd);
-      const laneBtn = e.target.closest(".kanban-plugin__lane-input-actions button");
-      if (laneBtn) return this.pressPill(laneBtn);
-      if (import_obsidian6.Platform.isMobile && this.pressMobile(e.target)) return;
-      const modalX = e.target.closest("body:not(.is-popout-modal) .modal:is(.mod-settings, .mod-community-modal) > :is(.modal-close-button, .modal-header-button)");
-      if (modalX) return this.pressPopSelf(modalX);
-      if (e.target.closest(".lg-nav-find .search-input-container")) return;
-      const pop0 = e.target.closest(PRESS_POP);
-      const pop = pop0 && !pop0.closest(".lg-tab-tools") ? pop0 : null;
-      const kbSearch = e.target.closest(".lg-kb-search-btn, .lg-nav-find");
-      if (kbSearch) return this.pressKbSearch(kbSearch);
-      if (pop) {
-        const anims = this.pressPop(pop);
-        if (pop.matches(PANEL_TOGGLES)) this.handoffPop(pop, anims);
-        return;
-      }
-      const field = e.target.closest('.workspace-leaf-content[data-type="search"] .search-input-container');
-      if (field) {
-        const input = field.querySelector("input");
-        if (input && doc.activeElement !== input) this.pressField(field, e);
-        return;
-      }
-      const sc = e.target.closest(PRESS_SCALE);
-      if (sc) this.pressScale(sc);
-      const rip = e.target.closest(PRESS_RIPPLE);
-      if (rip) this.pressRipple(rip, e);
-      else if (this.tabPlain()) {
-        const tab = e.target.closest(":is(.mod-left-split, .mod-right-split) .workspace-tab-header-container .workspace-tab-header");
-        if (tab && !tab.closest(".lg-tab-list")) {
-          const pill = tab.closest(PRESS_PILL);
-          const d = (pill ? pill.offsetHeight : tab.offsetHeight) * TAB_RIPPLE_K;
-          const from = Math.min(1, Math.max(tab.offsetWidth, tab.offsetHeight) / d);
-          this.pressRipple(tab, e, d, "lg-ripple-tab", true, from.toFixed(3));
-        }
-      }
-    };
-    let holding = false;
-    let held = [];
-    let slowed = [];
-    let heldPlay = [];
-    let holdRaf = 0;
-    let holdTimer = 0;
-    const hasOffsets = (a, x, y) => {
-      const ef = a.effect;
-      const k = ef && typeof ef.getKeyframes === "function" ? ef.getKeyframes() : [];
-      return k.some((f) => Math.abs((f.offset ?? -1) - x) < 1e-3) && k.some((f) => Math.abs((f.offset ?? -1) - y) < 1e-3);
-    };
-    const holdScan = () => {
-      if (!holding) return;
-      for (const a of doc.getAnimations()) {
-        if (a.playState !== "running" || held.includes(a) || heldPlay.includes(a)) continue;
-        const tgt = a.effect?.target;
-        const menuRip = !!tgt && !!tgt.parentElement?.classList.contains("lg-ripple-menu");
-        const span = menuRip ? [RIPPLE_HOLD, RIPPLE_HOLD] : hasOffsets(a, 0.34, 0.46) ? [0.34, 0.46] : hasOffsets(a, 0.2, 0.55) ? [0.2, 0.55] : null;
-        if (!span || !a.effect) continue;
-        const prog = () => Number(a.effect.getComputedTiming().progress) || 0;
-        const p = prog();
-        if (p < span[0]) {
-          if (p >= span[0] - HOLD_EASE_SPAN) {
-            a.updatePlaybackRate(Math.max(0.15, (span[0] - p) / HOLD_EASE_SPAN));
-            if (!slowed.includes(a)) slowed.push(a);
-          }
-          continue;
-        }
-        a.pause();
-        const goal = (span[0] + span[1]) / 2;
-        let lo = 0, hi = Number(a.currentTime) || 0;
-        for (let i = 0; i < 14; i++) {
-          const mid = (lo + hi) / 2;
-          a.currentTime = mid;
-          if (prog() < goal) lo = mid;
-          else hi = mid;
-        }
-        a.currentTime = hi;
-        (menuRip ? heldPlay : held).push(a);
-      }
-      holdRaf = win.requestAnimationFrame(holdScan);
-    };
-    const holdRelease = () => {
-      holding = false;
-      win.cancelAnimationFrame(holdRaf);
-      win.clearTimeout(holdTimer);
-      for (const a of held) {
-        try {
-          const ef = a.effect;
-          const target = ef && ef.target;
-          if (!ef || !target || !target.isConnected) {
-            a.cancel();
-            continue;
-          }
-          const kf = ef.getKeyframes();
-          const peak = kf.find((f) => Math.abs((f.offset ?? -1) - 0.34) < 1e-3) || kf.find((f) => Math.abs((f.offset ?? -1) - 0.2) < 1e-3);
-          const from = {};
-          if (peak) {
-            for (const [k, v] of Object.entries(peak)) if (!["offset", "computedOffset", "easing", "composite"].includes(k)) from[k] = v;
-          }
-          a.cancel();
-          target.animate([{ ...from, offset: 0 }], { duration: HOLD_RETURN_MS, easing: EASE.press, pseudoElement: ef.pseudoElement || void 0 });
-        } catch {
-        }
-      }
-      held = [];
-      for (const a of heldPlay) {
-        try {
-          a.updatePlaybackRate(1);
-          a.play();
-        } catch {
-        }
-      }
-      heldPlay = [];
-      for (const a of slowed) {
-        try {
-          if (a.playState !== "idle") a.updatePlaybackRate(1);
-        } catch {
-        }
-      }
-      slowed = [];
-    };
-    this.registerDomEvent(doc, "pointerdown", (e) => {
-      if (e.button !== 0) return;
-      holdRelease();
-      holding = true;
-      holdRaf = win.requestAnimationFrame(holdScan);
-      holdTimer = win.setTimeout(holdRelease, 5e3);
-    }, { capture: true });
-    const followMenu = (x, y) => {
-      doc.querySelectorAll(".lg-ripple-menu > .lg-ripple-dot").forEach((dot) => {
-        const host = dot.parentElement && dot.parentElement.parentElement;
-        if (!host) return;
-        const r = host.getBoundingClientRect();
-        dot.style.left = `${x - r.left}px`;
-        dot.style.top = `${y - r.top}px`;
-      });
-    };
-    if (import_obsidian6.Platform.isMobile) {
-      this.registerDomEvent(doc, "touchmove", (e) => {
-        if (holding && e.touches[0]) followMenu(e.touches[0].clientX, e.touches[0].clientY);
-      }, { capture: true, passive: true });
-      this.registerDomEvent(doc, "touchend", holdRelease, { capture: true, passive: true });
-      this.registerDomEvent(doc, "touchcancel", holdRelease, { capture: true, passive: true });
-    }
-    this.registerDomEvent(doc, "pointermove", (e) => {
-      if (!holding) return;
-      followMenu(e.clientX, e.clientY);
-    }, { capture: true, passive: true });
-    this.registerDomEvent(doc, "pointerup", holdRelease, { capture: true });
-    this.registerDomEvent(doc, "pointercancel", (e) => {
-      if (import_obsidian6.Platform.isMobile && e.pointerType === "touch" && doc.querySelector(".lg-ripple-menu")) return;
-      holdRelease();
-    }, { capture: true });
-    this.register(holdRelease);
-    if (!import_obsidian6.Platform.isMobile) {
-      this.registerDomEvent(doc, "pointerdown", pressFx, { capture: true });
-    } else {
-      let pend = null;
-      const drop = () => {
-        if (!pend) return;
-        win.clearTimeout(pend.t);
-        pend = null;
-      };
-      const fire = () => {
-        if (!pend) return;
-        const ev = pend.e;
-        drop();
-        pressFx(ev);
-      };
-      this.registerDomEvent(doc, "pointerdown", (e) => {
-        drop();
-        if (e.button !== 0 || !isEl(e.target)) return;
-        pend = { e, x: e.clientX, y: e.clientY, t: win.setTimeout(fire, PRESS_DELAY_MS) };
-      }, { capture: true, passive: true });
-      this.registerDomEvent(doc, "pointermove", (e) => {
-        if (pend && Math.hypot(e.clientX - pend.x, e.clientY - pend.y) > PRESS_SLOP) drop();
-      }, { capture: true, passive: true });
-      this.registerDomEvent(doc, "pointercancel", drop, { capture: true, passive: true });
-      this.registerDomEvent(doc, "pointerup", fire, { capture: true, passive: true });
-      this.register(drop);
-    }
+  },
+  // 칸반: 목록 접기·펴기, 날짜 고르기가 가리킬 곳
+  attachKanbanEvents(doc, win) {
     this.registerDomEvent(
       doc,
       "click",
@@ -2451,147 +2705,48 @@ var eventsMethods = {
       },
       { capture: true }
     );
-    let lastPress = null;
     this.registerDomEvent(
       doc,
       "pointerdown",
       (e) => {
-        lastPress = { x: e.clientX, y: e.clientY, t: win.performance.now(), target: e.target };
+        const t = e.target;
+        if (!isEl(t)) return;
+        const a = t.closest(".kanban-plugin__item-postfix-button, .kanban-plugin__item-metadata-date, .kanban-plugin__item-metadata-time");
+        if (a) this.lastKbAnchor = { el: a, t: win.performance.now() };
       },
       { capture: true, passive: true }
     );
-    const openSelect = (sel) => {
-      lastPress = { x: 0, y: 0, t: win.performance.now(), target: sel };
-      this.openDropdownMenu(sel);
-    };
-    this.registerDomEvent(
-      doc,
-      "mousedown",
-      (e) => {
-        if (import_obsidian6.Platform.isMobile || e.button !== 0 || !isEl(e.target)) return;
-        const sel = e.target.closest("select.dropdown");
-        if (!sel || sel.disabled) return;
-        e.preventDefault();
-        sel.lgSkipClick = sel.classList.contains("has-active-menu");
-      },
-      { capture: true }
-    );
-    this.registerDomEvent(
-      doc,
-      "click",
-      (e) => {
-        if (import_obsidian6.Platform.isMobile || e.button !== 0 || !isEl(e.target)) return;
-        const sel = e.target.closest("select.dropdown");
-        if (!sel || sel.disabled) return;
-        e.preventDefault();
-        if (sel.lgSkipClick || sel.classList.contains("has-active-menu")) {
-          sel.lgSkipClick = false;
-          return;
-        }
-        win.setTimeout(() => openSelect(sel), 0);
-      },
-      { capture: true }
-    );
-    if (import_obsidian6.Platform.isMobile) {
-      let touch = null;
+  },
+  // 캔버스: 카드 추가 버튼 옮기기, 도구 막대 화살표
+  attachCanvasEvents(doc, win) {
+    if (!import_obsidian6.Platform.isPhone) {
+      const cardsAll = () => this.app.workspace.getLeavesOfType("canvas").forEach((l) => this.canvasCards(l.view.containerEl));
+      this.registerEvent(this.app.workspace.on("layout-change", cardsAll));
+      this.registerEvent(this.app.workspace.on("active-leaf-change", () => win.requestAnimationFrame(cardsAll)));
+      this.app.workspace.onLayoutReady(cardsAll);
+      this.register(
+        () => doc.querySelectorAll(".lg-canvas-cards").forEach((c) => {
+          c.classList.remove("lg-canvas-cards");
+          if (c.lgHome && c.lgHome.isConnected) c.lgHome.appendChild(c);
+        })
+      );
+    }
+    if (!import_obsidian6.Platform.isPhone) {
       this.registerDomEvent(
         doc,
-        "touchstart",
+        "pointerup",
         (e) => {
-          const t = e.touches[0];
-          const sel = isEl(e.target) && e.target.closest("select.dropdown");
-          touch = sel && !sel.disabled && e.touches.length === 1 ? { sel, x: t.clientX, y: t.clientY } : null;
+          const t = e.target;
+          const wrap = isEl(t) ? t.closest(".canvas-wrapper") : null;
+          if (!wrap) return;
+          win.requestAnimationFrame(() => win.requestAnimationFrame(() => this.canvasArrows(wrap)));
         },
         { capture: true, passive: true }
       );
-      this.registerDomEvent(
-        doc,
-        "touchend",
-        (e) => {
-          const p = touch;
-          touch = null;
-          const t = e.changedTouches[0];
-          if (!p || !t || Math.hypot(t.clientX - p.x, t.clientY - p.y) > 10) return;
-          if (!isEl(e.target) || e.target.closest("select.dropdown") !== p.sel) return;
-          e.preventDefault();
-          if (!p.sel.classList.contains("has-active-menu")) openSelect(p.sel);
-        },
-        { capture: true }
-      );
-      this.registerDomEvent(
-        doc,
-        "click",
-        (e) => {
-          const sel = isEl(e.target) && e.target.closest("select.dropdown");
-          if (!sel || sel.disabled) return;
-          e.preventDefault();
-          if (!sel.classList.contains("has-active-menu")) openSelect(sel);
-        },
-        { capture: true }
-      );
     }
-    this.registerDomEvent(
-      doc,
-      "keydown",
-      (e) => {
-        if (import_obsidian6.Platform.isMobile || !isEl(e.target) || !e.target.matches("select.dropdown")) return;
-        const sel = e.target;
-        if (sel.disabled || sel.classList.contains("has-active-menu")) return;
-        if (e.key === " " || e.key === "Enter" || e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
-          e.preventDefault();
-          openSelect(sel);
-        }
-      },
-      { capture: true }
-    );
-    this.registerDomEvent(
-      doc,
-      "contextmenu",
-      (e) => {
-        lastPress = { x: e.clientX, y: e.clientY, t: win.performance.now(), target: e.target };
-      },
-      { capture: true, passive: true }
-    );
-    const isMenu = (n) => isEl(n) && n.classList.contains("menu") && !n.classList.contains("lg-menu-ghost");
-    const menuObs = new win.MutationObserver((recs) => {
-      for (const r of recs) {
-        for (const n of r.addedNodes) {
-          if (isMenu(n)) {
-            const pt = lastPress && lastPress.target;
-            if (import_obsidian6.Platform.isMobile && !(isEl(pt) && pt.closest(".menu")) && els(doc.querySelectorAll(".menu")).some((m) => m !== n && !m.classList.contains("lg-menu-ghost"))) {
-              this.tellMenus(n, "click");
-            }
-            if (!import_obsidian6.Platform.isPhone) this.setupMenu(n, lastPress);
-          } else if (isEl(n) && n.classList.contains("mod-search-suggestion")) this.attachSearchSuggest(n, doc);
-          else if (isEl(n) && n.classList.contains("suggestion-container")) this.attachWebSuggest(n, doc);
-          else if (isEl(n) && n.classList.contains("modal-container")) this.modalRefract(doc);
-        }
-        for (const n of r.removedNodes) if (isMenu(n) && !import_obsidian6.Platform.isPhone) this.closeMenu(n, doc);
-      }
-      if (import_obsidian6.Platform.isPhone) phonePause();
-    });
-    menuObs.observe(doc.body, { childList: true });
-    this.observers.push(menuObs);
-    const phonePause = () => {
-      const menu = els(doc.querySelectorAll(".menu")).some((m) => !m.classList.contains("lg-menu-ghost"));
-      const drawer = els(doc.querySelectorAll(".workspace-drawer")).some((d) => d.style.display !== "none" && !!d.style.transform);
-      this.refractor.setPaused(menu || drawer);
-    };
-    if (import_obsidian6.Platform.isPhone && doc === document) {
-      const drawerObs = new win.MutationObserver(phonePause);
-      const seen = /* @__PURE__ */ new WeakSet();
-      const hookDrawers = () => {
-        els(doc.querySelectorAll(".workspace-drawer")).forEach((d) => {
-          if (seen.has(d)) return;
-          seen.add(d);
-          drawerObs.observe(d, { attributes: true, attributeFilter: ["style"] });
-        });
-        phonePause();
-      };
-      this.observers.push(drawerObs);
-      this.app.workspace.onLayoutReady(hookDrawers);
-      this.registerEvent(this.app.workspace.on("layout-change", hookDrawers));
-    }
+  },
+  // 편집창 탭을 닫은 뒤 탭 폭 고정 풀기
+  attachTabUnlock(doc, win) {
     const unlockTabs = (e) => {
       if (!isEl(e.target)) return;
       const close = e.target.closest(".mod-root .workspace-tab-header-inner-close-button");
@@ -2603,6 +2758,9 @@ var eventsMethods = {
     };
     this.registerDomEvent(doc, "click", unlockTabs, { capture: true, passive: true });
     this.registerDomEvent(doc, "auxclick", unlockTabs, { capture: true, passive: true });
+  },
+  // 패널 머리 줄 검색창 켜고 끄는 움직임
+  attachHeadSearch(doc, win) {
     this.registerDomEvent(
       doc,
       "click",
@@ -2658,6 +2816,9 @@ var eventsMethods = {
       },
       { capture: true, passive: true }
     );
+  },
+  // 그래프 설정 창 열기·닫기
+  attachGraphEvents(doc, win) {
     this.registerDomEvent(
       doc,
       "click",
@@ -2670,6 +2831,9 @@ var eventsMethods = {
       },
       { capture: true }
     );
+  },
+  // 토글·슬라이더
+  attachToggleSlider(doc, win) {
     const onToggle = (c) => {
       if (!c || c.classList.contains("is-disabled") || !c.isConnected) return;
       try {
@@ -2740,6 +2904,14 @@ var eventsMethods = {
       if (e.animationName === "lg-sl-born") syncSlider(e.target);
     });
     for (const el of doc.querySelectorAll('input[type="range"]')) syncSlider(el);
+    this.registerDomEvent(doc, "keydown", (e) => {
+      if ((e.key === " " || e.key === "Enter") && isEl(e.target) && e.target.classList.contains("checkbox-container")) {
+        onToggle(e.target);
+      }
+    });
+  },
+  // 패널 탭을 누를 때 탭 줄 스크롤 맞추기
+  attachPanelTabScroll(doc, win) {
     this.registerDomEvent(
       doc,
       "pointerdown",
@@ -2770,6 +2942,9 @@ var eventsMethods = {
       },
       { capture: true, passive: true }
     );
+  },
+  // 할 일 체크박스 애니메이션
+  attachTaskEvents(doc, win) {
     let taskMo = null;
     this.registerDomEvent(
       doc,
@@ -2826,11 +3001,9 @@ var eventsMethods = {
       },
       true
     );
-    this.registerDomEvent(doc, "keydown", (e) => {
-      if ((e.key === " " || e.key === "Enter") && isEl(e.target) && e.target.classList.contains("checkbox-container")) {
-        onToggle(e.target);
-      }
-    });
+  },
+  // 별도 창 제목 위치
+  attachTitleWatch(doc, win) {
     if (doc !== document) {
       const ro = new win.ResizeObserver(() => this.placeTitle(doc));
       ro.observe(doc.body);
@@ -2841,11 +3014,430 @@ var eventsMethods = {
   }
 };
 
-// src/press.ts
+// src/events-press.ts
+var import_obsidian7 = require("obsidian");
+var eventsPressMethods = {
+  // 누름 효과와 꾹 누름 멈춤
+  attachPressFx(doc, win) {
+    const pressFx = (e) => {
+      if (e.button !== 0 || !isEl(e.target)) return;
+      this.pressClick = this.reduceMotion();
+      const menuItem = e.target.closest(".menu .menu-item:not(.is-disabled):not(.is-label)");
+      if (menuItem) {
+        if (this.pressClick) return;
+        const menu = menuItem.closest(".menu");
+        const m = menu.getBoundingClientRect();
+        const far = Math.hypot(Math.max(e.clientX - m.left, m.right - e.clientX), Math.max(e.clientY - m.top, m.bottom - e.clientY));
+        return this.pressRipple(menu, e, far * 2 / 0.8, "lg-ripple-menu", true, MENU_RIPPLE_FROM);
+      }
+      const kbAdd = e.target.closest(".kanban-plugin__new-item-button");
+      if (kbAdd) return this.pressKanbanAdd(kbAdd);
+      const laneBtn = e.target.closest(".kanban-plugin__lane-input-actions button");
+      if (laneBtn) return this.pressPill(laneBtn);
+      if (import_obsidian7.Platform.isMobile && this.pressMobile(e.target)) return;
+      const modalX = e.target.closest("body:not(.is-popout-modal) .modal:is(.mod-settings, .mod-community-modal) > :is(.modal-close-button, .modal-header-button)");
+      if (modalX) return this.pressPopSelf(modalX);
+      if (e.target.closest(".lg-nav-find .search-input-container")) return;
+      const pop0 = e.target.closest(PRESS_POP);
+      const pop = pop0 && !pop0.closest(".lg-tab-tools") ? pop0 : null;
+      const kbSearch = e.target.closest(".lg-kb-search-btn, .lg-nav-find");
+      if (kbSearch) return this.pressClick ? void 0 : this.pressKbSearch(kbSearch);
+      if (pop) {
+        const anims = this.pressPop(pop);
+        if (pop.matches(PANEL_TOGGLES)) this.handoffPop(pop, anims);
+        return;
+      }
+      const field = e.target.closest('.workspace-leaf-content[data-type="search"] .search-input-container');
+      if (field) {
+        const input = field.querySelector("input");
+        if (input && doc.activeElement !== input) this.pressField(field, e);
+        return;
+      }
+      const sc = e.target.closest(PRESS_SCALE);
+      if (sc) this.pressScale(sc);
+      const rip = e.target.closest(PRESS_RIPPLE);
+      if (rip) this.pressRipple(rip, e);
+      else if (this.tabPlain()) {
+        const tab = e.target.closest(":is(.mod-left-split, .mod-right-split) .workspace-tab-header-container .workspace-tab-header");
+        if (tab && !tab.closest(".lg-tab-list")) {
+          const pill2 = tab.closest(PRESS_PILL);
+          const d = (pill2 ? pill2.offsetHeight : tab.offsetHeight) * TAB_RIPPLE_K;
+          const from = Math.min(1, Math.max(tab.offsetWidth, tab.offsetHeight) / d);
+          this.pressRipple(tab, e, d, "lg-ripple-tab", true, from.toFixed(3));
+        }
+      }
+    };
+    let holding = false;
+    let held = [];
+    let slowed = [];
+    let heldPlay = [];
+    let holdRaf = 0;
+    let holdTimer = 0;
+    let before = /* @__PURE__ */ new WeakSet();
+    const holdSpan = (a) => {
+      if (a.id.startsWith("lg-hold-")) {
+        const v = Number(a.id.slice(8));
+        return Number.isFinite(v) ? [v, v] : null;
+      }
+      return hasOffsets(a, 0.34, 0.46) ? [0.34, 0.46] : hasOffsets(a, 0.2, 0.55) ? [0.2, 0.55] : null;
+    };
+    const heldPeak = /* @__PURE__ */ new WeakMap();
+    const hasOffsets = (a, x, y) => {
+      const ef = a.effect;
+      const k = ef && typeof ef.getKeyframes === "function" ? ef.getKeyframes() : [];
+      return k.some((f) => Math.abs((f.offset ?? -1) - x) < 1e-3) && k.some((f) => Math.abs((f.offset ?? -1) - y) < 1e-3);
+    };
+    const holdScan = () => {
+      if (!holding) return;
+      for (const a of doc.getAnimations()) {
+        if (a.playState !== "running" || held.includes(a) || heldPlay.includes(a)) continue;
+        if (before.has(a)) continue;
+        const tgt = a.effect?.target;
+        const menuRip = !!tgt && !!tgt.parentElement?.classList.contains("lg-ripple-menu");
+        const span = menuRip ? [RIPPLE_HOLD, RIPPLE_HOLD] : holdSpan(a);
+        if (!span || !a.effect) continue;
+        const prog = () => Number(a.effect.getComputedTiming().progress) || 0;
+        const p = prog();
+        if (p < span[0]) {
+          if (p >= span[0] - HOLD_EASE_SPAN) {
+            a.updatePlaybackRate(Math.max(0.15, (span[0] - p) / HOLD_EASE_SPAN));
+            if (!slowed.includes(a)) slowed.push(a);
+          }
+          continue;
+        }
+        a.pause();
+        const goal = (span[0] + span[1]) / 2;
+        let lo = 0, hi = Number(a.currentTime) || 0;
+        for (let i = 0; i < 14; i++) {
+          const mid = (lo + hi) / 2;
+          a.currentTime = mid;
+          if (prog() < goal) lo = mid;
+          else hi = mid;
+        }
+        a.currentTime = hi;
+        heldPeak.set(a, span[0]);
+        (menuRip ? heldPlay : held).push(a);
+      }
+      holdRaf = win.requestAnimationFrame(holdScan);
+    };
+    const holdRelease = () => {
+      holding = false;
+      win.cancelAnimationFrame(holdRaf);
+      win.clearTimeout(holdTimer);
+      for (const a of held) {
+        try {
+          const ef = a.effect;
+          const target = ef && ef.target;
+          if (!ef || !target || !target.isConnected) {
+            a.cancel();
+            continue;
+          }
+          const kf = ef.getKeyframes();
+          const at = heldPeak.get(a) ?? 0.34;
+          const peak = kf.find((f) => Math.abs((f.offset ?? -1) - at) < 1e-3);
+          const from = {};
+          if (peak) {
+            for (const [k, v] of Object.entries(peak)) if (!["offset", "computedOffset", "easing", "composite"].includes(k)) from[k] = v;
+          }
+          a.cancel();
+          target.animate([{ ...from, offset: 0 }], { duration: HOLD_RETURN_MS, easing: EASE.press, pseudoElement: ef.pseudoElement || void 0 });
+        } catch {
+        }
+      }
+      held = [];
+      for (const a of heldPlay) {
+        try {
+          a.updatePlaybackRate(1);
+          a.play();
+        } catch {
+        }
+      }
+      heldPlay = [];
+      for (const a of slowed) {
+        try {
+          if (a.playState !== "idle") a.updatePlaybackRate(1);
+        } catch {
+        }
+      }
+      slowed = [];
+    };
+    this.registerDomEvent(doc, "pointerdown", (e) => {
+      if (e.button !== 0) return;
+      holdRelease();
+      holding = true;
+      before = new WeakSet(doc.getAnimations());
+      holdRaf = win.requestAnimationFrame(holdScan);
+      holdTimer = win.setTimeout(holdRelease, 5e3);
+    }, { capture: true });
+    const followMenu = (x, y) => {
+      doc.querySelectorAll(".lg-ripple-menu > .lg-ripple-dot").forEach((dot) => {
+        const host = dot.parentElement && dot.parentElement.parentElement;
+        if (!host) return;
+        const r = host.getBoundingClientRect();
+        dot.style.left = `${x - r.left}px`;
+        dot.style.top = `${y - r.top}px`;
+      });
+    };
+    if (import_obsidian7.Platform.isMobile) {
+      this.registerDomEvent(doc, "touchmove", (e) => {
+        if (holding && e.touches[0]) followMenu(e.touches[0].clientX, e.touches[0].clientY);
+      }, { capture: true, passive: true });
+      this.registerDomEvent(doc, "touchend", holdRelease, { capture: true, passive: true });
+      this.registerDomEvent(doc, "touchcancel", holdRelease, { capture: true, passive: true });
+    }
+    this.registerDomEvent(doc, "pointermove", (e) => {
+      if (!holding) return;
+      followMenu(e.clientX, e.clientY);
+    }, { capture: true, passive: true });
+    this.registerDomEvent(doc, "pointerup", holdRelease, { capture: true });
+    this.registerDomEvent(doc, "pointercancel", (e) => {
+      if (import_obsidian7.Platform.isMobile && e.pointerType === "touch" && doc.querySelector(".lg-ripple-menu")) return;
+      holdRelease();
+    }, { capture: true });
+    this.register(holdRelease);
+    if (!import_obsidian7.Platform.isMobile) {
+      this.registerDomEvent(doc, "pointerdown", pressFx, { capture: true });
+    } else {
+      let pend = null;
+      const abort = () => {
+        if (!pend || doc.querySelector(".lg-ripple-menu")) return;
+        const { fresh: fresh2 } = pend;
+        pend = null;
+        holdRelease();
+        for (const a of fresh2) {
+          try {
+            if (a.playState !== "running" && a.playState !== "paused") continue;
+            a.updatePlaybackRate(-PRESS_ABORT_RATE);
+            a.play();
+          } catch {
+          }
+        }
+      };
+      this.registerDomEvent(doc, "pointerdown", (e) => {
+        pend = null;
+        if (e.button !== 0 || !isEl(e.target)) return;
+        const prior = new Set(doc.getAnimations());
+        pressFx(e);
+        pend = { x: e.clientX, y: e.clientY, fresh: doc.getAnimations().filter((a) => !prior.has(a)) };
+      }, { capture: true, passive: true });
+      this.registerDomEvent(doc, "pointermove", (e) => {
+        if (pend && Math.hypot(e.clientX - pend.x, e.clientY - pend.y) > PRESS_SLOP) abort();
+      }, { capture: true, passive: true });
+      this.registerDomEvent(doc, "pointercancel", abort, { capture: true, passive: true });
+      this.registerDomEvent(doc, "pointerup", () => pend = null, { capture: true, passive: true });
+    }
+  }
+};
+
+// src/events-menus.ts
 var import_obsidian8 = require("obsidian");
+var eventsMenusMethods = {
+  // 메뉴·드롭다운·팝오버: 누른 자리 기록, 드롭다운을 Obsidian 메뉴로, 새 메뉴 준비
+  attachMenuEvents(doc, win) {
+    let lastPress = null;
+    this.registerDomEvent(
+      doc,
+      "pointerdown",
+      (e) => {
+        lastPress = { x: e.clientX, y: e.clientY, t: win.performance.now(), target: e.target };
+      },
+      { capture: true, passive: true }
+    );
+    const openSelect = (sel) => {
+      const prev = lastPress;
+      if (this.reduceMotion() && prev && prev.x + prev.y > 0 && win.performance.now() - prev.t < 3e3) {
+        lastPress = { x: prev.x, y: prev.y, t: win.performance.now(), target: sel.parentElement || doc.body };
+        this.openDropdownMenu(sel, { x: prev.x, y: prev.y });
+        return;
+      }
+      lastPress = { x: 0, y: 0, t: win.performance.now(), target: sel };
+      this.openDropdownMenu(sel);
+    };
+    this.registerDomEvent(
+      doc,
+      "mousedown",
+      (e) => {
+        if (import_obsidian8.Platform.isMobile || e.button !== 0 || !isEl(e.target)) return;
+        const sel = e.target.closest("select.dropdown");
+        if (!sel || sel.disabled) return;
+        e.preventDefault();
+        sel.lgSkipClick = sel.classList.contains("has-active-menu");
+      },
+      { capture: true }
+    );
+    this.registerDomEvent(
+      doc,
+      "click",
+      (e) => {
+        if (import_obsidian8.Platform.isMobile || e.button !== 0 || !isEl(e.target)) return;
+        const sel = e.target.closest("select.dropdown");
+        if (!sel || sel.disabled) return;
+        e.preventDefault();
+        if (sel.lgSkipClick || sel.classList.contains("has-active-menu")) {
+          sel.lgSkipClick = false;
+          return;
+        }
+        win.setTimeout(() => openSelect(sel), 0);
+      },
+      { capture: true }
+    );
+    if (import_obsidian8.Platform.isTablet) {
+      this.registerDomEvent(
+        doc,
+        "scroll",
+        (e) => {
+          if (!doc.querySelector("body > .menu:not(.lg-menu-ghost)")) return;
+          if (isEl(e.target) && e.target.closest(".menu")) return;
+          this.tellMenus(doc.body, "mousedown");
+        },
+        { capture: true, passive: true }
+      );
+    }
+    if (import_obsidian8.Platform.isMobile) {
+      let touch = null;
+      this.registerDomEvent(
+        doc,
+        "touchstart",
+        (e) => {
+          const t = e.touches[0];
+          const sel = isEl(e.target) && e.target.closest("select.dropdown");
+          touch = sel && !sel.disabled && e.touches.length === 1 ? { sel, x: t.clientX, y: t.clientY } : null;
+        },
+        { capture: true, passive: true }
+      );
+      this.registerDomEvent(
+        doc,
+        "touchend",
+        (e) => {
+          const p = touch;
+          touch = null;
+          const t = e.changedTouches[0];
+          if (!p || !t || Math.hypot(t.clientX - p.x, t.clientY - p.y) > 10) return;
+          if (!isEl(e.target) || e.target.closest("select.dropdown") !== p.sel) return;
+          e.preventDefault();
+          if (!p.sel.classList.contains("has-active-menu")) openSelect(p.sel);
+        },
+        { capture: true }
+      );
+      this.registerDomEvent(
+        doc,
+        "click",
+        (e) => {
+          const sel = isEl(e.target) && e.target.closest("select.dropdown");
+          if (!sel || sel.disabled) return;
+          e.preventDefault();
+          if (!sel.classList.contains("has-active-menu")) openSelect(sel);
+        },
+        { capture: true }
+      );
+    }
+    this.registerDomEvent(
+      doc,
+      "keydown",
+      (e) => {
+        if (import_obsidian8.Platform.isMobile || !isEl(e.target) || !e.target.matches("select.dropdown")) return;
+        const sel = e.target;
+        if (sel.disabled || sel.classList.contains("has-active-menu")) return;
+        if (e.key === " " || e.key === "Enter" || e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+          e.preventDefault();
+          openSelect(sel);
+        }
+      },
+      { capture: true }
+    );
+    this.registerDomEvent(
+      doc,
+      "contextmenu",
+      (e) => {
+        lastPress = { x: e.clientX, y: e.clientY, t: win.performance.now(), target: e.target };
+      },
+      { capture: true, passive: true }
+    );
+    if (!import_obsidian8.Platform.isPhone) {
+      this.registerDomEvent(
+        doc,
+        "contextmenu",
+        (e) => {
+          if (!isEl(e.target)) return;
+          const btn = e.target.closest(`${BASES_MENU_BTN}, .bases-toolbar-new-item-menu > .text-icon-button, .workspace-leaf-content[data-type="kanban"] > .view-header .view-actions .clickable-icon`);
+          if (!btn || btn.matches(".view-actions .clickable-icon") && !this.opensMenu(btn)) return;
+          e.preventDefault();
+          e.stopPropagation();
+          btn.click();
+        },
+        { capture: true }
+      );
+    }
+    this.registerDomEvent(
+      doc,
+      "mouseover",
+      (e) => {
+        const t = e.target;
+        if (!isEl(t)) return;
+        const a = t.closest("a.internal-link, .internal-link, a.footnote-link, .footnote-link, .cm-hmd-internal-link, .cm-footref, a[data-href]");
+        if (a) this.lastHoverLink = { el: a, t: win.performance.now() };
+      },
+      { capture: true, passive: true }
+    );
+    const isMenu = (n) => isEl(n) && n.classList.contains("menu") && !n.classList.contains("lg-menu-ghost");
+    const menuObs = new win.MutationObserver((recs) => {
+      for (const r of recs) {
+        for (const n of r.addedNodes) {
+          if (isMenu(n)) {
+            const pt = lastPress && lastPress.target;
+            if (import_obsidian8.Platform.isMobile && !(isEl(pt) && pt.closest(".menu")) && els(doc.querySelectorAll(".menu")).some((m) => m !== n && !m.classList.contains("lg-menu-ghost"))) {
+              this.tellMenus(n, "click");
+            }
+            if (!import_obsidian8.Platform.isPhone) this.setupMenu(n, lastPress);
+          } else if (isEl(n) && n.matches(".popover.hover-popover") && !import_obsidian8.Platform.isPhone) {
+            const h = this.lastHoverLink;
+            if (h && h.el.isConnected && win.performance.now() - h.t < 4e3) this.popArrow(n, h.el);
+          } else if (isEl(n) && n.classList.contains("mod-search-suggestion")) this.attachSearchSuggest(n, doc);
+          else if (isEl(n) && n.classList.contains("suggestion-container")) this.attachWebSuggest(n, doc);
+          else if (isEl(n) && n.classList.contains("modal-container")) this.modalRefract(doc);
+          const k = this.lastKbAnchor;
+          if (isEl(n) && !import_obsidian8.Platform.isPhone && k && win.performance.now() - k.t < 8e3) {
+            win.requestAnimationFrame(() => {
+              const cal = n.matches(".kanban-plugin__date-picker") ? n.querySelector(".flatpickr-calendar") : null;
+              if (cal && k.el.isConnected && !cal.classList.contains("lg-menu-arrow")) this.popArrow(cal, k.el);
+            });
+          }
+        }
+        for (const n of r.removedNodes) if (isMenu(n) && !import_obsidian8.Platform.isPhone) this.closeMenu(n, doc);
+      }
+      doc.body.classList.toggle("lg-menu-open", !!doc.querySelector("body > .menu:not(.lg-menu-ghost)"));
+      if (import_obsidian8.Platform.isPhone) phonePause();
+    });
+    menuObs.observe(doc.body, { childList: true });
+    this.observers.push(menuObs);
+    const phonePause = () => {
+      const menu = els(doc.querySelectorAll(".menu")).some((m) => !m.classList.contains("lg-menu-ghost"));
+      const drawer = els(doc.querySelectorAll(".workspace-drawer")).some((d) => d.style.display !== "none" && !!d.style.transform);
+      this.refractor.setPaused(menu || drawer);
+    };
+    if (import_obsidian8.Platform.isPhone && doc === document) {
+      const drawerObs = new win.MutationObserver(phonePause);
+      const seen = /* @__PURE__ */ new WeakSet();
+      const hookDrawers = () => {
+        els(doc.querySelectorAll(".workspace-drawer")).forEach((d) => {
+          if (seen.has(d)) return;
+          seen.add(d);
+          drawerObs.observe(d, { attributes: true, attributeFilter: ["style"] });
+        });
+        phonePause();
+      };
+      this.observers.push(drawerObs);
+      this.app.workspace.onLayoutReady(hookDrawers);
+      this.registerEvent(this.app.workspace.on("layout-change", hookDrawers));
+    }
+  }
+};
+
+// src/press.ts
+var import_obsidian10 = require("obsidian");
 
 // src/lens.ts
-var import_obsidian7 = require("obsidian");
+var import_obsidian9 = require("obsidian");
 var SL_SHADOW_A = 0.45;
 var SL_SQUASH = 0.2;
 var SL_STOP_MS = 50;
@@ -2878,13 +3470,13 @@ var TAB_LENS_H2 = 1.2;
 var TAB_SHRINK_MS = 280;
 var TAB_SQUASH = 0.5;
 var TAB_SQUASH_AT = 0.25;
-var TAB_SQUASH_HOLD = 0.25;
+var TAB_SQUASH_HOLD = 0;
 var TAB_STRETCH = 0.08;
 var TAB_STRETCH_H = 0.08;
 var TAB_SQUASH_SMALL = 0.7;
 var MOBILE_TAB_GROW = 1.1;
 var MOBILE_TAB_SQUASH = 0.1;
-var TAB_RESTORE_MS = 600;
+var TAB_RESTORE_MS = 300;
 var TAB_REF_RATIO = 1.3;
 var tabTravelMs = (dist) => Math.min(220, 130 + dist * 0.6);
 var tabTravelEase = (u) => u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2;
@@ -3060,7 +3652,7 @@ var SegmentLens = class {
     put(this.textEl, "border-radius", `${n(vh * this.rx)}px / ${n(r)}px`);
     put(this.textInner, "left", `${(-px0).toFixed(3)}px`);
     put(this.textInner, "top", `${(-py0).toFixed(3)}px`);
-    if (import_obsidian7.Platform.isMobile) {
+    if (import_obsidian9.Platform.isMobile) {
       if (s.filter) s.removeProperty("filter");
       return;
     }
@@ -3092,12 +3684,13 @@ var SegmentLens = class {
     const R = r.height * TAB_REF_RATIO;
     const w1 = r.width + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? r.height : Hc;
-    const h2 = this.keepH ? r.height * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
-    const w2 = r.width + h2 * TAB_REF_RATIO - R + (this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD);
+    const hGrow = this.keepH ? r.height * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
+    const h2 = !this.keepH && this.plugin.reduceMotion() ? h1 : hGrow;
+    const w2 = r.width + hGrow * TAB_REF_RATIO - R + (this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD);
     const legs = [[r.width, r.height, w1, h1], [w1, h1, w2, h2], [w2, h2, r.width, r.height]];
     const sizes = [];
     for (const [w0, h0, wa, ha] of legs) for (let k = 0; k <= 1.0001; k += 0.05) sizes.push([w0 + (wa - w0) * k, h0 + (ha - h0) * k]);
-    const texts = import_obsidian7.Platform.isMobile ? [] : sizes.map(([w, h]) => [w, h, 1]);
+    const texts = import_obsidian9.Platform.isMobile ? [] : sizes.map(([w, h]) => [w, h, 1]);
     const win = this.header.ownerDocument.defaultView || window;
     const ref = this.plugin.refractor;
     const idle = (fn) => win.requestIdleCallback ? win.requestIdleCallback(fn, { timeout: 2e3 }) : win.setTimeout(fn, 50);
@@ -3159,7 +3752,8 @@ var SegmentLens = class {
     const R = b.h * TAB_REF_RATIO;
     const w1 = b.w + R * (TAB_LENS_W - 1);
     const h1 = this.keepH ? b.h : Hc;
-    const h2 = this.keepH ? b.h * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
+    const hGrow = this.keepH ? b.h * MOBILE_TAB_GROW : Hc * TAB_LENS_H2;
+    const h2 = !this.keepH && this.plugin.reduceMotion() ? h1 : hGrow;
     const tabsEl = this.header.closest(".workspace-tabs");
     const small = !this.keepH && !!tabsEl && !this.plugin.tabWideOf(tabsEl) && !this.plugin.settings.tabNames;
     const f = small ? TAB_SQUASH_SMALL : 1;
@@ -3167,7 +3761,7 @@ var SegmentLens = class {
     const ST = TAB_STRETCH * f;
     const STH = TAB_STRETCH_H * f;
     const FWD = this.keepH ? MOBILE_TAB_GROW_FWD : TAB_GROW_FWD;
-    const w2 = b.w + h2 * TAB_REF_RATIO - R + FWD;
+    const w2 = b.w + hGrow * TAB_REF_RATIO - R + FWD;
     const lead = b.cx + dir * b.w / 2 + dir * FWD * (1 - smooth(clamp01((t - D) / TAB_SHRINK_MS)));
     let bw;
     let bh;
@@ -3218,7 +3812,7 @@ var SegmentLens = class {
       cy = b.cy;
     } else if (t < D + TAB_SHRINK_MS + TAB_RESTORE_MS) {
       const x = (t - D - TAB_SHRINK_MS) / TAB_RESTORE_MS;
-      const k = 1 - Math.pow(1 - x, 3);
+      const k = smooth(x);
       bw = b.w;
       bh = b.h;
       g = 0;
@@ -3264,7 +3858,7 @@ var pressMethods = {
   // 호버는 한 번에 한 버튼에만 보이므로, 비게 된 ::before 를 알약 링 그림자에 쓴다(테마). 보이고 사라지는 것은 테마의 :hover 규칙이 맡고,
   // 둘을 번갈아 써서 옆 버튼으로 옮겨 갈 때 떠나는 버튼의 유리가 흐려지는 중에 빼앗기지 않게 한다
   hoverGlassInto(el) {
-    if (import_obsidian8.Platform.isMobile || !el.matches(HOVER_ICON)) return null;
+    if (import_obsidian10.Platform.isMobile || !el.matches(HOVER_ICON)) return null;
     const have = el.querySelector(":scope > .lg-hover-glass");
     if (have) return have;
     const doc = el.ownerDocument;
@@ -3276,14 +3870,30 @@ var pressMethods = {
         return g2;
       });
       this.register(() => {
-        doc.lgHoverPool?.forEach((g2) => g2.remove());
+        doc.lgHoverPool?.forEach((g2) => {
+          g2.lgGlassMo?.disconnect();
+          g2.remove();
+        });
         doc.lgHoverPool = void 0;
       });
     }
     const pool = doc.lgHoverPool;
     const g = pool.shift();
     pool.push(g);
+    g.lgGlassMo?.disconnect();
     el.prepend(g);
+    const win = doc.defaultView || window;
+    const mo = new win.MutationObserver((recs) => {
+      if (!recs.some((r) => [...r.removedNodes].includes(g))) return;
+      const added = recs.flatMap((r) => [...r.addedNodes]).filter((n) => n.nodeName.toLowerCase() === "svg");
+      const fresh2 = added[added.length - 1];
+      if (!fresh2 || g.parentElement) return;
+      const old = el.firstChild;
+      if (old && old !== fresh2 && old.nodeName.toLowerCase() === "svg") old.remove();
+      el.prepend(g);
+    });
+    mo.observe(el, { childList: true });
+    g.lgGlassMo = mo;
     return g;
   },
   // 단독 원형 버튼: 유리 층이 흰색으로 바뀌며 커졌다가 제자리로
@@ -3297,16 +3907,47 @@ var pressMethods = {
     if (g) return g.animate(frames, opt);
     return el.animate(frames, { ...opt, pseudoElement: "::before" });
   },
+  // 컴팩트 모드(설정)일 때 단독 버튼: 살짝 커졌다 바로 작아지기만 한다, 빛 없음 (사용자 요청. 아니면 흰색으로 크게 커진다).
+  // 누르고 있으면 가장 커진 자리(0.4)에서 멈춘다 (사용자 요청, id 의 lg-hold-0.4 로 알아본다). pseudo: 유리를 그린 의사 요소 (없으면 요소 자체)
+  clickPop(el, pseudo) {
+    const r = el.getBoundingClientRect();
+    const k = (1 + Math.min(0.08, 4 / Math.max(r.width, r.height, 1))).toFixed(3);
+    const opt = { duration: 260, easing: "cubic-bezier(0.3, 0, 0.3, 1)" };
+    const peak = { offset: 0.4 };
+    if (pseudo) peak.transform = `scale(${k})`;
+    else peak.scale = k;
+    const pop = el.animate([peak], pseudo ? { ...opt, pseudoElement: pseudo } : opt);
+    pop.id = "lg-hold-0.4";
+    return [null, pop];
+  },
+  // 누름 효과가 끝나기 전에 다시 누르면: 하던 효과(누름·꾹 누름에서 돌아오기·호버 유리 옅게)를 지우고 지금 모습을 첫 장면으로 돌려준다.
+  // 예전엔 앞 효과가 남아 새 효과가 끝난 뒤 앞 효과가 이어 돌아 두 번 재생됐다 (사용자 지적, 태블릿). 하던 효과가 없으면 null
+  pressRestart(el, pseudo, props) {
+    const own = el.getAnimations({ subtree: true }).filter((a) => {
+      if ("transitionProperty" in a || "animationName" in a) return false;
+      const ef = a.effect;
+      return !!ef && (ef.target === el || !!ef.target && "classList" in ef.target && ef.target.classList.contains("lg-hover-glass"));
+    });
+    if (!own.length) return null;
+    const cs = (el.ownerDocument.defaultView || window).getComputedStyle(el, pseudo);
+    const from = { offset: 0 };
+    for (const [key, css] of props) from[key] = cs.getPropertyValue(css);
+    own.forEach((a) => a.cancel());
+    return from;
+  },
   // k: 가장 클 때 배율 (기본 1.28)
   pressPop(el, k = 1.28) {
+    if (this.pressClick) return this.clickPop(el, "::after");
     try {
-      const hover = this.fadeHover(el, { duration: 600, easing: EASE.press });
+      const from = this.pressRestart(el, "::after", [["transform", "transform"], ["backgroundColor", "background-color"]]);
+      const hover = this.fadeHover(el, { duration: 500, easing: EASE.press });
       const pop = el.animate(
         [
+          ...from ? [from] : [],
           { offset: 0.34, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG },
           { offset: 0.46, transform: `scale(${k})`, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG }
         ],
-        { duration: 600, easing: EASE.press, pseudoElement: "::after" }
+        { duration: 500, easing: EASE.press, pseudoElement: "::after" }
       );
       return [hover, pop];
     } catch (err) {
@@ -3316,10 +3957,14 @@ var pressMethods = {
   },
   // pressPop 과 같은 값인데 유리가 요소 자체에 있는 버튼용. 누를 때 작아지는 transform 과 겹치지 않게 scale 속성으로 건다
   pressPopSelf(el, k = 1.28) {
+    if (this.pressClick) {
+      this.clickPop(el);
+      return;
+    }
     try {
-      this.fadeHover(el, { duration: 600, easing: EASE.press });
+      this.fadeHover(el, { duration: 500, easing: EASE.press });
       const peak = { scale: String(k), backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
-      el.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 600, easing: EASE.press });
+      el.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 500, easing: EASE.press });
     } catch (err) {
       console.error("[glass-shelf] pop-self", err);
     }
@@ -3336,7 +3981,7 @@ var pressMethods = {
     let restarts = 0;
     const tick = () => {
       const t = win.performance.now() - t0;
-      if (t > 600) return;
+      if (t > 500) return;
       if (shown(el)) {
         if (restarts < 3 && t > 30 && win.getComputedStyle(el, "::after").transform === "none") {
           restarts++;
@@ -3357,15 +4002,16 @@ var pressMethods = {
   // 누른 버튼이 든 컨테이너 알약이 통째로 커졌다가 돌아온다 (알약이 클수록 조금만)
   pressScale(el) {
     try {
-      const pill = el.closest(PRESS_PILL);
-      if (!pill) return;
+      const pill2 = el.closest(PRESS_PILL);
+      if (!pill2) return;
+      if (this.pressClick) return;
       if (el.matches(".workspace-tab-header") && el.closest(".lg-tab-list")) return;
-      const r = pill.getBoundingClientRect();
+      const r = pill2.getBoundingClientRect();
       const tab = el.matches(".workspace-tab-header") && !this.tabPlain();
-      const group = pill.matches(PRESS_GROUP);
+      const group = pill2.matches(PRESS_GROUP);
       const k = 1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1)) * (tab ? TAB_PRESS_K : group ? GROUP_PRESS_K : 1);
-      const opt = { duration: 570, easing: EASE.press };
-      pill.animate([{ offset: 0.34, scale: k.toFixed(3) }, { offset: 0.46, scale: k.toFixed(3) }], opt);
+      const opt = { duration: 470, easing: EASE.press };
+      pill2.animate([{ offset: 0.34, scale: k.toFixed(3) }, { offset: 0.46, scale: k.toFixed(3) }], opt);
       if (tab) return;
       this.fadeHover(el, opt);
     } catch (err) {
@@ -3374,11 +4020,15 @@ var pressMethods = {
   },
   // 알약 버튼 하나를 누름: 크기에 맞춰 조금 커지고(최대 20%, 16px 만큼) 가장 클 때 하얘졌다 돌아온다
   pressPill(btn) {
+    if (this.pressClick) {
+      this.clickPop(btn);
+      return;
+    }
     try {
       const r = btn.getBoundingClientRect();
       const k = (1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1))).toFixed(3);
       const peak = { scale: k, backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG };
-      btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 570, easing: EASE.press });
+      btn.animate([{ offset: 0.34, ...peak }, { offset: 0.46, ...peak }], { duration: 470, easing: EASE.press });
     } catch (err) {
       console.error("[glass-shelf] press-pill", err);
     }
@@ -3387,17 +4037,28 @@ var pressMethods = {
   pressMobile(t) {
     try {
       let el = t.closest(MOBILE_PRESS_POP);
+      if (this.pressClick) {
+        if (el && !el.matches(".modal-setting-back-button")) {
+          this.clickPop(el);
+          return true;
+        }
+        if (!el && t.closest(MOBILE_PRESS_BTN)) return true;
+      }
       let k = 1.28;
       let white = true;
-      let dur = 600;
+      let dur = 500;
       if (!el) {
         const btn = t.closest(MOBILE_PRESS_BTN);
         el = btn && btn.closest(MOBILE_PRESS_PILL);
+        if (!el && btn) {
+          const pill2 = btn.closest(PRESS_PILL);
+          if (pill2 && !pill2.matches(".workspace-tab-header-container-inner")) el = pill2;
+        }
         if (!el) return false;
         const r = el.getBoundingClientRect();
         k = 1 + Math.min(0.2, 16 / Math.max(r.width, r.height, 1));
         white = !el.matches(".workspace-drawer-tab-options-list") || this.tabPlain();
-        dur = 570;
+        dur = 470;
       }
       if (el.matches(".modal-setting-back-button")) {
         this.backGhost(el, k);
@@ -3405,7 +4066,8 @@ var pressMethods = {
       }
       const peak = { scale: k.toFixed(3) };
       if (white) Object.assign(peak, { backgroundColor: PRESS_WHITE, backgroundImage: PRESS_IMG });
-      el.animate([Object.assign({ offset: 0.34 }, peak), Object.assign({ offset: 0.46 }, peak)], {
+      const from = this.pressRestart(el, void 0, white ? [["scale", "scale"], ["backgroundColor", "background-color"]] : [["scale", "scale"]]);
+      el.animate([...from ? [from] : [], Object.assign({ offset: 0.34 }, peak), Object.assign({ offset: 0.46 }, peak)], {
         duration: dur,
         easing: EASE.press
       });
@@ -3439,7 +4101,7 @@ var pressMethods = {
     try {
       const r = el.getBoundingClientRect();
       const k = 1.02;
-      const opt = { duration: 570, easing: EASE.press };
+      const opt = { duration: 470, easing: EASE.press };
       el.animate([{ offset: 0.34, scale: k.toFixed(3) }, { offset: 0.46, scale: k.toFixed(3) }], opt);
       el.lgPress = { t: performance.now(), k, opt };
       this.pressRipple(el, e, r.height * 4.5, "lg-ripple-field");
@@ -3451,6 +4113,7 @@ var pressMethods = {
   // size: 흰 빛 지름 (없으면 알약 높이 × RIPPLE_K), cls: 덧붙일 클래스,
   // hold: 지름을 줘도 가장 밝은 채로 퍼지는 구간을 둔다, from: 처음 크기(지름 대비, 기본 0)
   pressRipple(btn, e, size, cls, hold = false, from = 0) {
+    if (this.pressClick && !cls) return;
     const el = btn.closest(PRESS_PILL) || btn;
     const doc = el.ownerDocument;
     const r = el.getBoundingClientRect();
@@ -3591,7 +4254,7 @@ var pressMethods = {
       const puff = 1 + 0.5 * m.g;
       const sx = puff * (1 + m.d);
       const g = m.g;
-      const sy = puff * (1 - m.d * 0.7) * (import_obsidian8.Platform.isMobile ? (th + LENS_TG_TALL * g) / th : 1);
+      const sy = puff * (1 - m.d * 0.7) * (import_obsidian10.Platform.isMobile ? (th + LENS_TG_TALL * g) / th : 1);
       frames.push({
         offset: u,
         // 렌즈가 되면 위아래로 실제 높이를 조금 더 키운다. 모서리 반지름은 원래 알약 그대로 고정해서(곡률 유지)
@@ -3608,11 +4271,11 @@ var pressMethods = {
         webkitBackdropFilter: backdrop
       });
     }
-    if (import_obsidian8.Platform.isMobile) for (const f of frames) {
+    if (import_obsidian10.Platform.isMobile) for (const f of frames) {
       delete f.height;
       delete f.top;
     }
-    if (import_obsidian8.Platform.isMobile) for (const f of frames) delete f.boxShadow;
+    if (import_obsidian10.Platform.isMobile) for (const f of frames) delete f.boxShadow;
     const anim = c.animate(frames, { duration: 320, easing: "linear", pseudoElement: "::after" });
     const done = () => c.classList.remove("lg-tg-anim");
     anim.onfinish = done;
@@ -3876,6 +4539,11 @@ var kanbanMethods = {
       this.observers.push(obs);
     }
     const bar = content.querySelector(".bases-toolbar");
+    if (bar && !bar.lgSearchRo) {
+      bar.lgSearchRo = new win.ResizeObserver(() => this.basesSearch(root, content));
+      bar.lgSearchRo.observe(bar);
+      this.observers.push(bar.lgSearchRo);
+    }
     if (bar && !this.kbWatched.has(bar)) {
       const obs = new win.MutationObserver(() => this.basesGroupMark(view));
       obs.observe(bar, { childList: true, subtree: true, characterData: true });
@@ -3901,12 +4569,24 @@ var kanbanMethods = {
     }
     if (btn.classList.contains("lg-on") !== on) btn.classList.toggle("lg-on", on);
   },
+  // 검색이 켜져 있으면 검색 칸을 넓어진 검색 버튼 위로 옮긴다(테마 .lg-kb-searching). 툴바에 남는 폭이 NAV_SEARCH_MIN 보다 적으면
+  // 옮기지 않고 Obsidian 원래 자리(툴바 아래 줄)에 둔다 (사용자 요청, 패널 검색 칸과 같은 방식). 남는 폭만큼 넓히되 NAV_SEARCH_MAX 까지
   basesSearch(root, content) {
     const row = content.querySelector(":scope > .bases-search-row");
     const btn = content.querySelector(".bases-toolbar-search > .lg-kb-search-btn");
-    const on = !!(row && btn && btn.classList.contains("is-active") && row.style.display !== "none");
+    let on = !!(row && btn && btn.classList.contains("is-active") && row.style.display !== "none");
+    const bar = btn && btn.closest(".bases-toolbar");
+    const item = btn && btn.parentElement;
+    if (on && bar && item) {
+      const gap = parseFloat(getComputedStyle(bar).columnGap) || 0;
+      const others = els(bar.children).filter((x) => x !== item && x.instanceOf(HTMLElement) && x.offsetWidth > 0);
+      const free = bar.clientWidth - others.reduce((sum, x) => sum + x.offsetWidth, 0) - gap * others.length;
+      if (free >= NAV_SEARCH_MIN) root.style.setProperty("--lg-kb-search-w", `${Math.min(NAV_SEARCH_MAX, free)}px`);
+      else on = false;
+    }
+    if (!on) root.style.removeProperty("--lg-kb-search-w");
     if (root.classList.contains("lg-kb-searching") !== on) root.classList.toggle("lg-kb-searching", on);
-    if (!on) return;
+    if (!on || !row || !btn) return;
     const op = row.offsetParent || content;
     const pr = op.getBoundingClientRect();
     const br = btn.getBoundingClientRect();
@@ -3981,8 +4661,8 @@ var kanbanMethods = {
       console.error("[glass-shelf] kanban-search", err);
     }
   },
-  // 목록 추가 창 (보드 위 + 버튼): 보관함 전환 메뉴와 같은 애니메이션 (사용자 요청). 버튼 묶음 알약이 창의 오른쪽 위 꼭짓점에 오고,
-  // 알약은 좌우로 좁아져 원이 되며 창 가운데로 돌진해 사라지고 그 지점에서 창이 넓어져 나온다. 닫히면 반대로.
+  // 목록 추가 창 (보드 위 + 버튼): 화살표 없는 일반 메뉴창처럼 버튼 아래에 연다 (사용자 요청: 드롭다운처럼 버튼에서 넓어지지 않게.
+  // 예전엔 + 버튼을 가리키는 말풍선 화살표를 달았는데, 애플 가이드라인도 팝오버라고 늘 화살표를 달지는 않아 뺐다).
   // 창은 보드 안에 그려지는데 보드(contain)와 보기 내용(스크롤 상자)이 밖을 잘라, 여는 동안 보드의 제한을 푼다(테마 .lg-kb-laneform)
   kanbanLaneForm(root, ms) {
     const sel = ".kanban-plugin__lane-form-wrapper";
@@ -4000,80 +4680,53 @@ var kanbanMethods = {
   },
   laneFormOpen(root, form) {
     try {
-      const src = root.querySelector(".view-actions > .lg-kb-group");
-      if (!src) return;
+      const group = root.querySelector(".view-actions > .lg-kb-group");
+      const btn = group && group.querySelector(".clickable-icon.kanban-plugin__ignore-click-outside") || group;
+      if (!group || !btn) return;
       root.classList.add("lg-kb-laneform");
-      const win = root.ownerDocument.defaultView || window;
       const op = form.offsetParent || root;
       const o = op.getBoundingClientRect();
       const ox = o.left + op.clientLeft;
       const oy = o.top + op.clientTop;
-      const b = src.getBoundingClientRect();
-      const W = form.offsetWidth;
-      const H = form.offsetHeight;
-      const left = b.right - W - ox;
-      const top = b.top - oy;
-      form.style.left = `${left}px`;
-      form.style.top = `${top}px`;
-      form.classList.add("lg-right-auto");
-      const mr = parseFloat(win.getComputedStyle(form).borderTopLeftRadius) || 22;
-      const full = { left, top, width: W, height: H, radius: mr };
-      const bx = b.left + b.width / 2 - ox;
-      const by = b.top + b.height / 2 - oy;
-      const { ux, uy } = unitVec(bx, by, left + W / 2, top + H / 2);
-      const dot = this.dotAt(bx + ux * MORPH_DASH, by + uy * MORPH_DASH, b.height);
-      form.classList.add("lg-invisible");
-      const go = () => {
-        form.classList.remove("lg-invisible");
-        if (!form.isConnected) return;
-        form.lgMorph = { ux, uy, dot, src };
-        if (src.lgHide) src.lgHide.cancel();
-        src.lgHide = this.dashOut(src, ux, uy);
-        const kids = els(form.children).map((el) => ({ el, anchor: "right" }));
-        kids.forEach((k) => this.pinSize(k.el));
-        form.classList.add("lg-clip");
-        const grow = this.growBox(form, kids, dot, full, KB_DASH_MS * 0.6);
-        grow.onfinish = grow.oncancel = () => {
-          kids.forEach((k) => this.unpinSize(k.el));
-          form.classList.remove("lg-clip");
-        };
-        kids.forEach((k) => k.el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, delay: 120, easing: "ease-out", fill: "backwards" }));
-      };
-      win.requestAnimationFrame(() => win.requestAnimationFrame(go));
+      const g = group.getBoundingClientRect();
+      const b = btn.getBoundingClientRect();
+      const left = g.right - form.offsetWidth - ox;
+      const top = b.bottom + 4 - oy;
+      form.setCssProps({ left: `${left}px`, top: `${top}px` });
+      form.style.transformOrigin = `${(b.left + b.width / 2 - ox - left).toFixed(1)}px -4px`;
+      form.classList.add("lg-right-auto", "lg-kb-pop");
+      if (!this.reduceMotion()) {
+        form.animate(
+          [
+            { opacity: 0, transform: "scale(0.2)", easing: EASE.burst },
+            { offset: 0.42, opacity: 1, transform: "scale(1.02)", easing: EASE.ret },
+            { opacity: 1, transform: "scale(1)" }
+          ],
+          { duration: 280 }
+        );
+      }
     } catch (err) {
       console.error("[glass-shelf] lane-form", err);
     }
   },
   laneFormClose(root, form) {
-    const mo = form.lgMorph;
-    form.lgMorph = null;
     if (!root.querySelector(".kanban-plugin__lane-form-wrapper")) root.classList.remove("lg-kb-laneform");
-    if (!mo) return;
-    const { ux, uy, dot, src } = mo;
+    if (this.reduceMotion() || !root.isConnected || !form.classList.contains("lg-kb-pop")) return;
     try {
-      if (!root.isConnected || !src.isConnected) return;
       const ghost = form.cloneNode(true);
       ghost.classList.add("lg-kb-ghost");
       root.appendChild(ghost);
       const win = root.ownerDocument.defaultView || window;
-      win.setTimeout(() => ghost.remove(), 900);
-      const mr = parseFloat(win.getComputedStyle(ghost).borderTopLeftRadius) || 22;
-      const full = { left: ghost.offsetLeft, top: ghost.offsetTop, width: ghost.offsetWidth, height: ghost.offsetHeight, radius: mr };
-      const kids = els(ghost.children).map((el) => ({ el, anchor: "right" }));
-      kids.forEach((k) => {
-        this.pinSize(k.el);
-        k.el.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 60, easing: "ease-in", fill: "forwards" });
-      });
-      ghost.classList.add("lg-clip");
-      this.shrinkBox(ghost, kids, full, dot).onfinish = () => ghost.remove();
+      win.setTimeout(() => ghost.remove(), 600);
+      ghost.animate(
+        [
+          { opacity: 1, transform: "scale(1)" },
+          { opacity: 0, transform: "scale(0.5)" }
+        ],
+        { duration: 110, easing: EASE.exit, fill: "forwards" }
+      ).onfinish = () => ghost.remove();
     } catch (err) {
       console.error("[glass-shelf] lane-form-close", err);
-    } finally {
-      if (src.lgHide) {
-        src.lgHide.cancel();
-        src.lgHide = null;
-      }
-      if (src.isConnected) this.dashBack(src, ux, uy, 110);
     }
   },
   // 목록 접기·펴기: Kanban 은 접으면 카드 줄을 지우고 펴면 다시 그린다. 누를 때 크기를 재 두고, 다시 그려지면
@@ -4152,11 +4805,47 @@ var kanbanMethods = {
 };
 
 // src/menus.ts
-var import_obsidian9 = require("obsidian");
+var import_obsidian11 = require("obsidian");
 function itemTop(el, menu) {
   let y = 0;
   for (let e = el; e && e !== menu; e = e.offsetParent) y += e.offsetTop;
   return y;
+}
+var ARROW_H = 11;
+var ARROW_W = 10;
+var HI_REACH = 0.6;
+var ARROW_R = 5.5;
+function arrowBaseT(yb) {
+  return ARROW_R / Math.tan((Math.PI - Math.atan(yb / ARROW_W)) / 2);
+}
+var backdropColor = (menu, x, y) => {
+  const doc = menu.ownerDocument;
+  const win = doc.defaultView || window;
+  const under = doc.elementsFromPoint(x, y).find((el) => !menu.contains(el) && !el.closest(".menu"));
+  for (let el = under || null; el; el = el.parentElement) {
+    const bg = win.getComputedStyle(el).backgroundColor;
+    const a = /rgba?\([^)]*,\s*([\d.]+)\)$/.exec(bg);
+    if (bg && bg !== "transparent" && !(a && Number(a[1]) < 0.99) && !/\/\s*0(\.\d+)?\)$/.test(bg)) return bg;
+  }
+  return null;
+};
+function arrowTip(cx, yb) {
+  const f = (v) => v.toFixed(2);
+  const bx = cx - ARROW_W;
+  const len = Math.hypot(ARROW_W, yb);
+  const ux = ARROW_W / len;
+  const uy = yb / len;
+  const tipHalf = Math.atan(ARROW_W / yb);
+  const t = ARROW_R / Math.tan(tipHalf);
+  const tb = arrowBaseT(yb);
+  const p0 = bx - tb;
+  const p1x = bx + ux * tb;
+  const p1y = yb - uy * tb;
+  const p2x = cx - ux * t;
+  const p2y = uy * t;
+  const b = bx;
+  const m = (x) => 2 * cx - x;
+  return `M ${f(p0)} ${f(yb)} Q ${f(b)} ${f(yb)} ${f(p1x)} ${f(p1y)} L ${f(p2x)} ${f(p2y)} Q ${f(cx)} 0 ${f(m(p2x))} ${f(p2y)} L ${f(m(p1x))} ${f(p1y)} Q ${f(m(b))} ${f(yb)} ${f(m(p0))} ${f(yb)}`;
 }
 var menusMethods = {
   // 메뉴가 뜰 때: 커지는 기준점을 누른 자리로 둔다.
@@ -4168,7 +4857,7 @@ var menusMethods = {
     const doc = menu.ownerDocument;
     const win = doc.defaultView || window;
     if (menu.lgReady) {
-      menu.classList.remove("lg-menu-ready", "lg-menu-morph", "lg-bottom-auto", "lg-no-anim", "lg-min-w0");
+      menu.classList.remove("lg-menu-ready", "lg-menu-morph", "lg-bottom-auto", "lg-no-anim", "lg-layer-still");
       menu.style.removeProperty("width");
       menu.getAnimations().forEach((a) => a.cancel());
       menu.lgReady = false;
@@ -4191,7 +4880,7 @@ var menusMethods = {
       popSize();
       win.requestAnimationFrame(popSize);
     });
-    const pressed = press && now - press.t < (import_obsidian9.Platform.isMobile ? 1500 : 600);
+    const pressed = press && now - press.t < (import_obsidian11.Platform.isMobile ? 1500 : 600);
     if (pressed) this.webPopTint(menu, press.target);
     const outside = pressed && !(isEl(press.target) && press.target.closest(".menu"));
     const sub = els(doc.querySelectorAll(".menu")).some((m) => m !== menu && !m.classList.contains("lg-menu-ghost") && !(outside && press.t > (m.lgBorn || 0)));
@@ -4211,7 +4900,7 @@ var menusMethods = {
       }
     }
     const target = fresh2 && isEl(press.target) ? press.target : null;
-    const morphSel = import_obsidian9.Platform.isPhone ? `.workspace-drawer-vault-switcher, select.dropdown, ${BASES_MENU_BTN}` : `.workspace-drawer-vault-switcher, select.dropdown, .mod-community-modal .community-modal-search > .clickable-icon, ${BASES_MENU_BTN}`;
+    const morphSel = import_obsidian11.Platform.isPhone ? `.workspace-drawer-vault-switcher, select.dropdown, ${BASES_MENU_BTN}` : `.workspace-drawer-vault-switcher, select.dropdown, .mod-community-modal .community-modal-search > .clickable-icon, ${BASES_MENU_BTN}`;
     const src = target && target.closest(morphSel);
     if (src) menu.classList.add("lg-menu-morph");
     const settle = !!src && src.matches(BASES_MENU_BTN);
@@ -4238,11 +4927,22 @@ var menusMethods = {
           this.morphMenu(menu, src, settle);
           return;
         }
+        const syncIcon = target && target.closest(".status-bar-item.plugin-sync");
+        if (syncIcon) {
+          const ir = syncIcon.getBoundingClientRect();
+          const mw = menu.offsetWidth;
+          const mh = menu.offsetHeight;
+          const mx = Math.max(8, Math.min(win.innerWidth - mw - 8, ir.left + ir.width / 2 - mw / 2));
+          menu.style.left = `${mx}px`;
+          menu.style.top = `${ir.top - 4 - mh}px`;
+          this.popArrow(menu, syncIcon);
+          return;
+        }
         const list = target && target.closest(".mod-root .workspace-tab-header-tab-list");
         const tabMenu = target && target.closest(".lg-tab-menu");
         const pathMenu = target && target.closest(".lg-path-menu");
         if (list) this.placeUnderTabBar(menu, list, null);
-        else if (pathMenu) this.placeUnderTabBar(menu, pathMenu, pathMenu.closest(".lg-path-pill"));
+        else if (pathMenu) this.placeUnderTabBar(menu, pathMenu, pathMenu.closest(".lg-path-pill"), true);
         else if (tabMenu) this.placeUnderTabBar(menu, tabMenu, tabMenu.closest(".workspace-tab-header"));
         const rib = target && target.closest(".lg-rib-menu");
         if (rib) menu.style.top = `${layoutBottom(rib) + MENU_DROP}px`;
@@ -4282,8 +4982,10 @@ var menusMethods = {
         console.error("[glass-shelf] menu", err);
       } finally {
         menu.classList.add("lg-menu-ready");
+        if (!import_obsidian11.Platform.isPhone) this.menuHi(menu);
+        if (!import_obsidian11.Platform.isPhone) this.layerStill(menu);
         menu.lgReady = true;
-        this.followHover(menu);
+        if (!this.reduceMotion()) this.followHover(menu);
       }
     };
     win.requestAnimationFrame(() => run(0));
@@ -4434,24 +5136,31 @@ var menusMethods = {
   },
   // 편집창 탭 줄의 메뉴를 탭 줄 버튼 바로 밑에 둔다. 오른쪽 끝은 alignEl(탭) 오른쪽 끝,
   // 없으면 편집창 오른쪽 여백선(탭 줄 오른쪽 끝 - --lg-gap)
-  placeUnderTabBar(menu, btn, alignEl) {
+  // alignLeft: 기준 알약의 왼쪽 끝에 맞춘다 (경로 알약: ≡ 가 왼쪽 끝이다)
+  placeUnderTabBar(menu, btn, alignEl, alignLeft = false) {
     const tabs = btn.closest(".workspace-tabs");
     const header = tabs && tabs.querySelector(":scope > .workspace-tab-header-container");
     if (!header) return;
     const win = menu.ownerDocument.defaultView || window;
     const gap = parseFloat(win.getComputedStyle(menu.ownerDocument.body).getPropertyValue("--lg-gap")) || 10;
     const right = alignEl ? alignEl.getBoundingClientRect().right : tabs.getBoundingClientRect().right - gap;
-    const left = Math.max(gap, right - menu.offsetWidth);
+    const left = alignLeft && alignEl ? Math.max(gap, Math.min(win.innerWidth - menu.offsetWidth - gap, alignEl.getBoundingClientRect().left)) : Math.max(gap, right - menu.offsetWidth);
     menu.style.left = `${left}px`;
     const rowEl = btn.closest(".lg-path-pill, .lg-tab-tools") || (btn.matches(".workspace-tab-header-tab-list") ? btn : null);
     const bottom = rowEl ? layoutBottom(rowEl) : header.getBoundingClientRect().bottom - gap;
     menu.style.top = `${bottom + MENU_DROP}px`;
   },
+  // 컴팩트 모드(설정)를 이 기기에서 쓰는지: 끔 / 데스크톱만 / 데스크톱·태블릿. 휴대폰은 늘 원래 효과
+  reduceMotion() {
+    const rm = this.settings.reduceMotion;
+    return !import_obsidian11.Platform.isPhone && (import_obsidian11.Platform.isTablet ? rm === "pcTablet" : rm !== "off");
+  },
   // 드롭다운을 Obsidian 메뉴로 연다: 항목마다 고른 것은 체크 표시. 고르면 드롭다운 값을 바꾸고 input·change 를 알려
-  // 설정 화면 등이 운영체제 목록에서 고른 것과 똑같이 받는다
-  openDropdownMenu(sel) {
+  // 설정 화면 등이 운영체제 목록에서 고른 것과 똑같이 받는다.
+  // at: 누른 자리 (컴팩트 모드일 때 그 자리에 연다). 없으면 드롭다운 오른쪽 아래 기준
+  openDropdownMenu(sel, at) {
     const win = sel.ownerDocument.defaultView || window;
-    const menu = new import_obsidian9.Menu();
+    const menu = new import_obsidian11.Menu();
     sel.lgPickIdx = 0;
     let idx = 0;
     for (const opt of Array.from(sel.options)) {
@@ -4472,22 +5181,27 @@ var menusMethods = {
     sel.classList.add("has-active-menu");
     menu.onHide(() => {
       sel.classList.remove("has-active-menu");
-      if (sel.isConnected) sel.focus({ preventScroll: true });
+      if (sel.isConnected && !import_obsidian11.Platform.isMobile) sel.focus({ preventScroll: true });
     });
+    if (at) {
+      menu.showAtPosition({ x: at.x, y: at.y }, sel.ownerDocument);
+      return;
+    }
     const b = sel.getBoundingClientRect();
     menu.showAtPosition({ x: b.right, y: b.bottom, width: b.width, overlap: true, left: true }, sel.ownerDocument);
   },
   // 보관함 전환 메뉴: 버튼이 메뉴의 왼쪽 아래 꼭짓점에 오게 둔다(위에 자리가 없으면 왼쪽 위 꼭짓점).
   // 버튼은 메뉴 가운데를 향해 돌진하며 작아져 사라지고, 둘 사이 중간 지점에서 메뉴 창이 넓어져 나온다.
   // 창 크기만 바뀌고 안의 내용은 제자리에 그대로 있다
-  // keep: 메뉴를 옮기지 않고 Obsidian 이 둔 자리를 목표로 넓어진다 (Bases 보기 메뉴)
+  // keep: 메뉴를 옮기지 않고 Obsidian 이 둔 자리에서 일반 메뉴처럼 연다 (Bases 보기 메뉴)
   morphMenu(menu, src, keep = false) {
     const win = menu.ownerDocument.defaultView || window;
     const b = src.getBoundingClientRect();
     const drop = src.matches("select");
     let up = false;
     if (drop) {
-      menu.style.minWidth = `${b.width}px`;
+      const cssMin = parseFloat(win.getComputedStyle(menu).minWidth) || 0;
+      menu.style.minWidth = `${Math.max(b.width, cssMin)}px`;
       menu.classList.add("lg-dd-menu");
       const below = win.innerHeight - 8 - b.top;
       const above = b.bottom - 8;
@@ -4495,19 +5209,22 @@ var menusMethods = {
       const room = up ? above : below;
       if (menu.offsetHeight > room) menu.style.maxHeight = `${room}px`;
     }
+    if (keep) {
+      const mr2 = menu.getBoundingClientRect();
+      const ax = Math.max(0, Math.min(mr2.width, b.left + b.width / 2 - mr2.left));
+      menu.style.transformOrigin = `${ax.toFixed(1)}px ${(b.bottom - mr2.top).toFixed(1)}px`;
+      menu.lgOrigin = { x: mr2.left + ax, y: b.bottom };
+      menu.classList.remove("lg-menu-morph");
+      return;
+    }
     const W = Math.max(menu.offsetWidth, b.width);
     const H = Math.max(menu.offsetHeight, b.height);
-    if (drop) {
-      menu.style.width = `${W}px`;
-      menu.style.removeProperty("min-width");
-    }
-    if (keep) {
-      menu.style.width = `${W}px`;
-      menu.classList.add("lg-min-w0");
-    }
+    menu.style.width = `${W}px`;
+    menu.style.removeProperty("min-width");
+    menu.classList.add("lg-morph-w");
     const downFirst = src.matches(".mod-community-modal .community-modal-search > .clickable-icon");
-    const top = keep ? b.bottom + 4 : drop ? up ? b.bottom - H : b.top : downFirst ? b.top + H <= win.innerHeight - 8 ? b.top : Math.max(8, b.bottom - H) : b.bottom - H >= 8 ? b.bottom - H : b.top;
-    const left = keep ? Math.max(10, Math.min(win.innerWidth - W - 10, b.left)) : drop ? Math.max(8, b.right - W) : src.matches(".workspace-drawer-vault-switcher") ? Math.max(16, b.left) : b.left;
+    const top = drop ? up ? b.bottom - H : b.top : downFirst ? b.top + H <= win.innerHeight - 8 ? b.top : Math.max(8, b.bottom - H) : b.bottom - H >= 8 ? b.bottom - H : b.top;
+    const left = drop ? Math.max(8, b.right - W) : src.matches(".workspace-drawer-vault-switcher") ? Math.max(16, b.left) : b.left;
     const anchor = drop ? "right" : "left";
     menu.style.left = `${left}px`;
     menu.style.top = `${top}px`;
@@ -4519,9 +5236,6 @@ var menusMethods = {
     const { ux, uy } = unitVec(bx, by, left + W / 2, top + H / 2);
     const dot = drop ? this.dotAt(bx, by, b.height) : this.dotAt(bx + ux * MORPH_DASH, by + uy * MORPH_DASH, b.height);
     menu.lgSrc = src;
-    const leafEl = src.closest(".workspace-leaf-content");
-    const slot = src.parentElement && [...src.parentElement.classList].find((c) => c.startsWith("bases-toolbar-") && c !== "bases-toolbar-item");
-    menu.lgSrcFind = leafEl && slot ? () => leafEl.querySelector(`.${slot} > .text-icon-button`) : void 0;
     menu.lgMorph = { ux, uy, dot, anchor };
     if (!drop) {
       if (src.lgHide) src.lgHide.cancel();
@@ -4536,15 +5250,252 @@ var menusMethods = {
       inner.scrollTop += pr.top - ir.top - (inner.clientHeight - pr.height) / 2;
     }
     if (inner) this.pinSize(inner);
-    const grow = this.growBox(menu, inner ? [{ el: inner, anchor, layout: true }] : [], dot, full, 90);
+    const grow = this.growBox(menu, inner ? [{ el: inner, anchor: "left", layout: true }] : [], dot, full, 90);
     grow.onfinish = grow.oncancel = () => {
       if (inner) this.unpinSize(inner);
-      if (keep) {
-        menu.style.removeProperty("width");
-        menu.classList.remove("lg-min-w0");
-      }
     };
-    if (inner) inner.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 140, delay: 120, easing: "ease-out", fill: "backwards" });
+    if (inner) inner.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 100, delay: 85, easing: "ease-out", fill: "backwards" });
+  },
+  // 말풍선 화살표 켜기: 메뉴는 원래 둥근 사각형(그림자·외곽선·모서리 모양 그대로)이고, 위 끝에 화살표 SVG(.lg-arrow-line)를 붙인다.
+  // 예전엔 메뉴 전체를 "몸통 + 화살표" 경로로 잘라 그림자까지 잘렸다 (사용자 지적: 태블릿에서 그림자가 안 보임).
+  // 화살표 채움은 메뉴 유리 채움색, 선은 메뉴 윗선과 같은 외곽선 색·두께. 밑동은 메뉴 윗선을 덮어 이어진다.
+  // 화살표 끝은 버튼 가운데: 메뉴 크기(ResizeObserver)나 자리(Obsidian 이 style 로 옮김)가 바뀌면 다시 잰다
+  // (사용자 지적: 태블릿에서 화살표가 버튼을 제대로 가리키지 않았다)
+  arrowOn(menu) {
+    const win = menu.ownerDocument.defaultView || window;
+    let svg = menu.lgArrowSvg && menu.lgArrowSvg.parentElement === menu ? menu.lgArrowSvg : null;
+    if (!svg) {
+      svg = createSvg("svg", { cls: "lg-arrow-line", attr: { "aria-hidden": "true" } });
+      svg.createSvg("path", { cls: "lg-arrow-base" });
+      svg.createSvg("path", { cls: "lg-arrow-fill" });
+      svg.createSvg("path", { cls: "lg-arrow-sheen" });
+      svg.createSvg("path", { cls: "lg-arrow-stroke" });
+      svg.setCssProps({ position: "absolute" });
+      menu.append(svg);
+      menu.lgArrowSvg = svg;
+    }
+    const fill = svg.querySelector(".lg-arrow-fill");
+    const sheen = svg.querySelector(".lg-arrow-sheen");
+    const base = svg.querySelector(".lg-arrow-base");
+    const stroke = svg.querySelector(".lg-arrow-stroke");
+    if (!fill || !stroke) return 0;
+    let lastAx = 0;
+    const sync = () => {
+      if (!menu.isConnected) {
+        if (menu.lgArrowRo) menu.lgArrowRo.disconnect();
+        if (menu.lgArrowMo) menu.lgArrowMo.disconnect();
+        menu.lgArrowRo = null;
+        menu.lgArrowMo = null;
+        return;
+      }
+      const cs = win.getComputedStyle(menu);
+      const W = parseFloat(cs.width) || menu.offsetWidth;
+      const fixed = cs.position === "fixed";
+      const mrect = menu.getBoundingClientRect();
+      let left = fixed ? parseFloat(cs.left) : mrect.left;
+      if (!Number.isFinite(left)) left = mrect.left;
+      const src = menu.lgSrc && menu.lgSrc.isConnected ? menu.lgSrc : null;
+      const b = src && src.getBoundingClientRect();
+      const R = Math.min(parseFloat(cs.borderTopLeftRadius) || parseFloat(cs.getPropertyValue("--lg-menu-radius")) || 18, (parseFloat(cs.height) || menu.offsetHeight) / 2);
+      let top = fixed ? parseFloat(cs.top) : mrect.top;
+      if (!Number.isFinite(top)) top = mrect.top;
+      const Hb = parseFloat(cs.height) || menu.offsetHeight;
+      const half = ARROW_W + ARROW_R;
+      const lo = R + half;
+      const ax = W > lo * 2 ? Math.max(lo, Math.min(W - lo, b ? b.left + b.width / 2 - left : W / 2)) : W / 2;
+      const down = !!b && top + Hb / 2 < b.top + b.height / 2;
+      if (menu.classList.contains("lg-arrow-down") !== down) menu.classList.toggle("lg-arrow-down", down);
+      const bl = parseFloat(cs.borderLeftWidth) || 0;
+      const bt = parseFloat(down ? cs.borderBottomWidth : cs.borderTopWidth) || 0;
+      const yTop = down ? Hb - (parseFloat(cs.borderTopWidth) || 0) - ARROW_H : -ARROW_H - bt;
+      const flip = down ? { transform: "scaleY(-1)", "transform-origin": `0 ${ARROW_H}px` } : { transform: "", "transform-origin": "" };
+      const lw = bt || 1 / (win.devicePixelRatio || 1);
+      const SW = half * 2 + 2;
+      const cx = SW / 2;
+      const yb = ARROW_H + lw / 2;
+      svg.setAttribute("width", String(SW));
+      svg.setAttribute("height", String(ARROW_H + lw + 2));
+      svg.setCssProps({ left: `${(ax - cx - bl).toFixed(2)}px`, top: `${yTop.toFixed(2)}px`, ...flip });
+      fill.setAttribute("style", `fill: ${cs.backgroundColor}`);
+      const tip = arrowTip(cx, yb);
+      fill.setAttribute("d", `${tip} L ${(cx + half).toFixed(2)} ${(ARROW_H + lw + 1).toFixed(2)} L ${(cx - half).toFixed(2)} ${(ARROW_H + lw + 1).toFixed(2)} Z`);
+      if (sheen) sheen.setAttribute("d", fill.getAttribute("d") || "");
+      if (base) {
+        base.setAttribute("d", fill.getAttribute("d") || "");
+        const behind = backdropColor(menu, mrect.left + mrect.width / 2, mrect.top + (down ? mrect.height - 12 : 12)) || "var(--background-primary)";
+        const sa = /drop-shadow\(rgba\(0, 0, 0, ([\d.]+)\)/.exec(cs.filter);
+        const fa = /,\s*([\d.]+)\)$/.exec(cs.backgroundColor) || /\/\s*([\d.]+)\)$/.exec(cs.backgroundColor);
+        const dark = sa ? Number(sa[1]) * (fa ? Number(fa[1]) : 1) : 0;
+        base.setAttribute("style", `fill: color-mix(in srgb, ${behind}, #000 ${(dark * 100).toFixed(1)}%)`);
+      }
+      stroke.setAttribute("d", tip);
+      stroke.setAttribute("stroke-width", String(lw));
+      menu.lgArrowAt = { ax, down };
+      this.menuHi(menu);
+      lastAx = ax;
+      const gap = ARROW_W + arrowBaseT(ARROW_H + lw / 2);
+      const gl = `${(ax - gap).toFixed(2)}px`;
+      const gr = `${(ax + gap).toFixed(2)}px`;
+      if (menu.style.getPropertyValue("--lg-arrow-gl") !== gl) menu.style.setProperty("--lg-arrow-gl", gl);
+      if (menu.style.getPropertyValue("--lg-arrow-gr") !== gr) menu.style.setProperty("--lg-arrow-gr", gr);
+    };
+    menu.classList.add("lg-arrow-on");
+    sync();
+    if (!menu.lgArrowRo) {
+      menu.lgArrowRo = new ResizeObserver(() => sync());
+      menu.lgArrowRo.observe(menu);
+    }
+    if (!menu.lgArrowMo) {
+      let busy = false;
+      menu.lgArrowMo = new MutationObserver(() => {
+        if (busy) return;
+        busy = true;
+        sync();
+        win.requestAnimationFrame(() => busy = false);
+      });
+      menu.lgArrowMo.observe(menu, { attributes: true, attributeFilter: ["style"] });
+    }
+    return lastAx;
+  },
+  // 메뉴 안쪽 하이라이트(위아래 흰 선): 상자 그림자로는 모서리 곡선 어디서 끝낼지 정할 수 없어 SVG 선(.lg-arrow-hi)으로 그린다 (사용자 요청).
+  // 위아래 선이 모서리 곡선의 HI_REACH(60%)까지 따라 돌고 끝으로 갈수록 옅어진다. 곡선은 메뉴 모서리 모양(corner-shape: 원 또는 superellipse)대로 계산한다.
+  // 화살표가 있으면 그쪽 선은 화살표 안쪽을 따라 잇는다. 옆면의 옅은 하이라이트는 상자 그림자(테마)가 맡는다
+  menuHi(menu) {
+    const win = menu.ownerDocument.defaultView || window;
+    let hi = menu.lgArrowHi && menu.lgArrowHi.parentElement === menu ? menu.lgArrowHi : null;
+    if (!hi) {
+      hi = createSvg("svg", { cls: "lg-arrow-hi", attr: { "aria-hidden": "true" } });
+      const gid = `lg-hi-${Math.random().toString(36).slice(2, 8)}`;
+      const defs = hi.createSvg("defs");
+      for (const [k, c] of [["t", "--lg-hi-t-c"], ["b", "--lg-hi-b-c"]]) {
+        const g = defs.createSvg("linearGradient", { cls: `lg-hi-g${k}`, attr: { id: `${gid}-${k}`, gradientUnits: "userSpaceOnUse", y1: "0", y2: "0" } });
+        for (let i = 0; i < 4; i++) g.createSvg("stop", { attr: { style: `stop-color: var(${c})` } });
+      }
+      hi.createSvg("path", { cls: "lg-hi-top", attr: { fill: "none", stroke: `url(#${gid}-t)`, "stroke-width": "1" } });
+      hi.createSvg("path", { cls: "lg-hi-bot", attr: { fill: "none", stroke: `url(#${gid}-b)`, "stroke-width": "1" } });
+      hi.setCssProps({ position: "absolute" });
+      menu.append(hi);
+      menu.lgArrowHi = hi;
+      menu.classList.add("lg-has-hi");
+      if (!menu.lgHiRo) {
+        menu.lgHiRo = new ResizeObserver(() => {
+          if (!menu.isConnected) {
+            if (menu.lgHiRo) menu.lgHiRo.disconnect();
+            menu.lgHiRo = null;
+            return;
+          }
+          this.menuHi(menu);
+        });
+        menu.lgHiRo.observe(menu);
+      }
+    }
+    const grads = hi.querySelectorAll("linearGradient");
+    const top = hi.querySelector(".lg-hi-top");
+    const bot = hi.querySelector(".lg-hi-bot");
+    if (grads.length < 2 || !top || !bot) return;
+    const cs = win.getComputedStyle(menu);
+    const W = parseFloat(cs.width) || menu.offsetWidth;
+    const Hb = parseFloat(cs.height) || menu.offsetHeight;
+    if (W < 20 || Hb < 20) return;
+    const R = Math.min(parseFloat(cs.borderTopLeftRadius) || 0, W / 2, Hb / 2);
+    const bl = parseFloat(cs.borderLeftWidth) || 0;
+    const bt = parseFloat(cs.borderTopWidth) || 0;
+    const shape = cs.getPropertyValue("corner-shape") || "round";
+    const km = /superellipse\(\s*([\d.]+)/.exec(shape);
+    const n = km ? Math.pow(2, parseFloat(km[1])) : 2;
+    const M = ARROW_H;
+    const o = bt + 0.5;
+    const r = Math.max(0, R - o);
+    const f = (v) => v.toFixed(2);
+    const pt = (phi) => {
+      const c = Math.pow(Math.max(0, Math.cos(phi)), 2 / n);
+      const sn = Math.pow(Math.max(0, Math.sin(phi)), 2 / n);
+      return [o + r * (1 - c), M + o + r * (1 - sn)];
+    };
+    const p0 = Math.PI / 2 * (1 - HI_REACH);
+    const steps = 10;
+    const left = [];
+    for (let i = 0; i <= steps; i++) {
+      const [x, y] = pt(p0 + (Math.PI / 2 - p0) * i / steps);
+      left.push(`${i ? "L" : "M"} ${f(x)} ${f(y)}`);
+    }
+    const right = [];
+    for (let i = steps; i >= 0; i--) {
+      const [x, y] = pt(p0 + (Math.PI / 2 - p0) * i / steps);
+      right.push(`L ${f(W - x)} ${f(y)}`);
+    }
+    const yh = M + o;
+    const at = menu.classList.contains("lg-arrow-on") ? menu.lgArrowAt : null;
+    const line = (withArrow) => {
+      if (!withArrow || !at) return `${left.join(" ")} L ${f(W - o - r)} ${f(yh)} ${right.join(" ")}`;
+      const lw = bt || 1 / (win.devicePixelRatio || 1);
+      const yb = ARROW_H + lw / 2;
+      const hb = ARROW_W + arrowBaseT(yb);
+      const dy = yh - yb;
+      const tip = arrowTip(at.ax, yb).replace(/(-?\d+\.?\d*) (-?\d+\.?\d*)/g, (_m, x, y) => `${x} ${f(parseFloat(y) + dy)}`).replace(/^M/, "L");
+      return `${left.join(" ")} L ${f(at.ax - hb)} ${f(yh)} ${tip} L ${f(W - o - r)} ${f(yh)} ${right.join(" ")}`;
+    };
+    hi.setAttribute("width", String(W));
+    hi.setAttribute("height", String(Hb + M * 2));
+    hi.setCssProps({ left: `${f(-bl)}px`, top: `${f(-bt - M)}px` });
+    top.setAttribute("d", line(!!at && !at.down));
+    bot.setAttribute("d", line(!!at && at.down));
+    bot.setAttribute("transform", `matrix(1 0 0 -1 0 ${f(Hb + M * 2)})`);
+    const xe = pt(p0)[0];
+    const xm = pt((p0 + Math.PI / 2) / 2)[0];
+    grads.forEach((grad) => {
+      grad.setAttribute("x1", "0");
+      grad.setAttribute("x2", f(W));
+      grad.querySelectorAll("stop").forEach((st, i) => {
+        st.setAttribute("offset", String([xe / W, xm / W, 1 - xm / W, 1 - xe / W][i]));
+        st.setAttribute("stop-opacity", i === 0 || i === 3 ? "0" : "1");
+      });
+    });
+  },
+  // 버튼·링크 같은 대상(src)을 가리키는 팝오버로 만든다: 화살표를 붙이고, 열리는 기준점을 화살표 끝으로.
+  // 위·아래 어느 쪽 화살표인지는 창과 대상의 자리로 정한다 (Sync 상태 메뉴, 링크 미리보기 등)
+  popArrow(el, src) {
+    el.classList.add("lg-menu-arrow");
+    el.lgSrc = src;
+    const ax = this.arrowOn(el);
+    const down = el.classList.contains("lg-arrow-down");
+    const r = el.getBoundingClientRect();
+    el.style.transformOrigin = `${ax.toFixed(1)}px ${down ? `calc(100% + ${ARROW_H}px)` : `-${ARROW_H}px`}`;
+    el.lgOrigin = { x: r.left + ax, y: down ? r.bottom + ARROW_H : r.top - ARROW_H };
+    if (!import_obsidian11.Platform.isPhone) this.layerStill(el);
+  },
+  // 링 그림자 층을 따로 합성되는 층으로 두는 표시(.lg-layer-still, 테마가 링 층 ::before 에 will-change 를 건다)를 여는 애니메이션이 끝난 직후에 붙인다.
+  // 메뉴 전체에 처음부터 걸면 0.2배에서 커지기 시작할 때 그린 그림을 그대로 늘려 써 글자가 흐렸고 (사용자 지적),
+  // 아예 안 걸면 125% 배율에서 링 그림자가 오른쪽으로 치우치고, 애니메이션이 끝나 합성이 풀릴 때 깜빡였다
+  layerStill(el) {
+    const done = () => {
+      if (el.isConnected) el.classList.add("lg-layer-still");
+    };
+    const anims = el.getAnimations().filter((a) => a.playState !== "finished");
+    if (!anims.length) return done();
+    Promise.all(anims.map((a) => a.finished)).then(done, done);
+  },
+  // 캔버스: 카드 위 도구 막대는 xl 흰 유리 알약(테마), 그 안 색상 버튼을 누르면 뜨는 색 고르기는 색상 버튼을 가리키는 팝오버 (사용자 요청)
+  canvasArrows(wrap) {
+    const bar = wrap.querySelector(".canvas-menu");
+    if (!bar || !bar.childElementCount || !bar.getClientRects().length) return;
+    if (this.refractOn()) this.refractor.attach(bar, 26, false);
+    const sub = bar.querySelector(":scope > .canvas-submenu");
+    const color = bar.querySelector(":scope > .clickable-icon:has(.lucide-palette)") || bar.querySelector(":scope > .clickable-icon.is-active");
+    if (sub && color && sub.lgSrc !== color) this.popArrow(sub, color);
+  },
+  // 캔버스 아래 가운데의 카드 추가 버튼 묶음을 오른쪽 조작 버튼 묶음 밑으로 옮긴다 (사용자 요청). 버튼에 걸린 끌기 동작은 요소를 옮겨도 그대로다.
+  // 플러그인을 끄면 원래 자리로 돌려놓는다 (core.ts 정리)
+  canvasCards(root) {
+    const ctl = root.querySelector(".canvas-controls");
+    const undo = ctl && ctl.querySelector(".canvas-control-item .lucide-undo-2");
+    const undoGroup = undo && undo.closest(".canvas-control-group");
+    if (undoGroup && !undoGroup.classList.contains("lg-canvas-undo")) undoGroup.classList.add("lg-canvas-undo");
+    const cards = root.querySelector(".canvas-card-menu");
+    if (!cards || !ctl || cards.parentElement === ctl) return;
+    cards.lgHome = cards.parentElement;
+    cards.classList.add("lg-canvas-cards");
+    ctl.appendChild(cards);
   },
   // 메뉴가 닫히면(Obsidian 이 떼어 낸 직후, 그리기 전) 똑같은 사본을 띄워 사라지는 모습을 그린다.
   // 보통 메뉴는 커졌던 기준점으로 줄며 흐려지고, 보관함 메뉴는 중간 지점으로 줄어든 뒤
@@ -4560,8 +5511,7 @@ var menusMethods = {
       doc.body.appendChild(ghost);
       win.setTimeout(() => ghost.remove(), 900);
       if (menu.lgKey) this.lastShut = { key: menu.lgKey, rect: ghost.getBoundingClientRect(), t: win.performance.now(), ghost };
-      let src = menu.lgSrc;
-      if (src && !src.isConnected && menu.lgSrcFind) src = menu.lgSrcFind() || src;
+      const src = menu.lgSrc;
       if (menu.lgMorph && src && src.isConnected) {
         const { ux, uy, dot, anchor } = menu.lgMorph;
         const r = ghost.getBoundingClientRect();
@@ -4771,7 +5721,7 @@ var morphMethods = {
     const grow = (p) => full[p] + (full[p] - dot[p]) * 0.02;
     const over = { left: grow("left"), top: grow("top"), width: grow("width"), height: grow("height") };
     const round = Math.min(full.width, full.height) / 2;
-    const opt = { duration: 420, delay, easing: "linear", fill: "backwards" };
+    const opt = { duration: 300, delay, easing: "linear", fill: "backwards" };
     el.animate([{ opacity: 0 }, { offset: 0.2, opacity: 1 }, { opacity: 1 }], opt);
     const { ux, uy } = unitVec(dot.left + dot.width / 2, dot.top + dot.height / 2, full.left + full.width / 2, full.top + full.height / 2);
     el.animate(
@@ -4799,7 +5749,7 @@ var morphMethods = {
   // 창(full)이 작은 원(dot)으로 줄며 사라진다 (반동 없이, 도중엔 더 둥글게)
   shrinkBox(el, kids, full, dot) {
     const round = Math.min(full.width, full.height) / 2;
-    const opt = { duration: 200, easing: EASE.exit, fill: "forwards" };
+    const opt = { duration: 150, easing: EASE.exit, fill: "forwards" };
     el.animate([{ opacity: 1 }, { offset: 0.7, opacity: 1 }, { opacity: 0 }], opt);
     return this.boxMorph(el, kids, [{ box: full }, { radius: round, offset: 0.45 }, { box: dot }], full, opt);
   },
@@ -4808,7 +5758,7 @@ var morphMethods = {
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     if (el.matches(".lg-kb-group")) return (w - h * KB_PILL_DOT) / 2;
-    return el.matches(`.workspace-drawer-vault-switcher, ${BASES_MENU_BTN}`) && w > h * 1.3 ? (w - h) / 2 : 0;
+    return el.matches(".workspace-drawer-vault-switcher") && w > h * 1.3 ? (w - h) / 2 : 0;
   },
   // 버튼이 흐려지고 나타나는 효과. 요소 자체의 opacity 를 움직이면 그동안 요소가 뒤 화면을 떠 오는 경계(Backdrop Root)가 되어
   // 유리 층(::after)의 채움·색조·굴절이 꺼졌다가 애니메이션이 끝나야 돌아온다. 그래서 유리 층과 안의 내용에 따로 건다.
@@ -4889,14 +5839,9 @@ var morphMethods = {
     back.id = "lg-dash-back";
     return back;
   },
-  // 돌진 움직임. Bases 보기 버튼은 요소 자체를 옮기지 않고 보이는 층(유리 ::after, 링 ::before, 안의 내용)만 옮긴다:
-  // Obsidian 이 그 메뉴를 버튼 자리 기준으로 매 프레임 다시 놓아, 버튼을 옮기면 메뉴가 따라 내려갔다 (사용자 지적)
+  // 돌진 움직임
   dashMove(el, frames, opt) {
-    if (!el.matches(BASES_MENU_BTN)) return el.animate(frames, opt);
-    const main = el.animate(frames, { ...opt, pseudoElement: "::after" });
-    const rest = [el.animate(frames, { ...opt, pseudoElement: "::before" }), ...Array.from(el.children).filter((k) => !k.classList.contains("lg-hover-glass")).map((k) => k.animate(frames, opt))];
-    main.addEventListener("cancel", () => rest.forEach((a) => a.cancel()));
-    return main;
+    return el.animate(frames, opt);
   },
   // 그래프 설정 창: 설정 버튼(원)이 창의 오른쪽 위 꼭짓점. 버튼은 창 가운데를 향해 돌진하며 사라지고,
   // 둘 사이 중간 지점에서 창이 넓어져 나온다. 창 크기만 바뀌고 안의 내용은 제자리에 있다.
@@ -4981,7 +5926,17 @@ var morphMethods = {
 };
 
 // src/folders.ts
-var import_obsidian10 = require("obsidian");
+var import_obsidian12 = require("obsidian");
+var glyphKey = (type) => type.toLowerCase().replace(/[^a-z0-9-]/g, "_");
+var GLYPH_INK = "rgb(0 0 0 / 0.4)";
+var glyphInk = (rgb) => `rgb(${rgb.map((v) => Math.round(v * 0.72)).join(" ")} / 0.92)`;
+var glyphUrl = (body) => `url("data:image/svg+xml,${encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='-0.3 -0.3 14.6 17.6'>${body}</svg>`)}")`;
+var GLYPH_FALLBACK = {
+  base: (c) => `<rect x='2.8' y='7.3' width='8.4' height='6.9' rx='1.3' fill='none' stroke='${c}' stroke-width='1.3'/><path d='M2.8 10.1h8.4M6.3 10.1v4.1' fill='none' stroke='${c}' stroke-width='1.3' stroke-linecap='round'/>`,
+  canvas: (c) => [[2.8, 7.3, 3.5, 6.9], [7.7, 7.3, 3.5, 2.8], [7.7, 11.5, 3.5, 2.7]].map(([x, y, w, h]) => `<rect x='${x}' y='${y}' width='${w}' height='${h}' rx='0.9' fill='none' stroke='${c}' stroke-width='1.3'/>`).join(""),
+  kanban: (c) => [[2.6, 7.2], [5.75, 4.6], [8.9, 5.9]].map(([x, h]) => `<rect x='${x}' y='7.2' width='2.5' height='${h}' rx='0.8' fill='${c}'/>`).join(""),
+  draw: (c) => `<path d='M3.4 14l.6-2.6 5.6-5.6 2 2-5.6 5.6z M8.3 7.1l2 2' fill='none' stroke='${c}' stroke-width='1.3' stroke-linejoin='round' stroke-linecap='round'/>`
+};
 var foldersMethods = {
   // 폴더 기호 색 (CSS: --lg-folder-icon). 파랑은 테마의 기호를 그대로 쓴다.
   // 그 밖의 색은 테마 파랑 폴더와 같은 짜임으로 다시 그린다: 앞판 아래 = 고른 색, 앞판 위 = 흰색 22%, 뒤판 = 검정 15%, 빛 선 = 흰색 55%
@@ -5014,14 +5969,14 @@ var foldersMethods = {
     }
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu, file) => {
-        if (!(file instanceof import_obsidian10.TFolder) || file.isRoot()) return;
+        if (!(file instanceof import_obsidian12.TFolder) || file.isRoot()) return;
         menu.addItem((item) => item.setTitle(tr("\uD3F4\uB354 \uC0C9", "Folder color")).setIcon("palette").onClick(() => this.pickFolderColor(file)));
       })
     );
     const nameUsed = (name) => this.app.vault.getAllFolders().some((f) => f.name === name);
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
-        if (!(file instanceof import_obsidian10.TFolder)) return;
+        if (!(file instanceof import_obsidian12.TFolder)) return;
         const map = this.shared.folderColorsByName;
         const oldName = oldPath.split("/").pop();
         if (oldName === file.name || !map[oldName] || nameUsed(oldName)) return;
@@ -5032,7 +5987,7 @@ var foldersMethods = {
     );
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
-        if (!(file instanceof import_obsidian10.TFolder)) return;
+        if (!(file instanceof import_obsidian12.TFolder)) return;
         const map = this.shared.folderColorsByName;
         if (!map[file.name] || nameUsed(file.name)) return;
         delete map[file.name];
@@ -5052,7 +6007,7 @@ var foldersMethods = {
       if (hex) map[folder.name] = hex;
       else delete map[folder.name];
       const n = this.app.vault.getAllFolders().filter((f) => f.name === folder.name).length;
-      if (n > 1) new import_obsidian10.Notice(tr(`'${folder.name}' \uC774\uB984\uC758 \uD3F4\uB354 ${n}\uAC1C\uC5D0 ${hex ? "\uC0C9\uC744 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4." : "\uC9C0\uC815\uD55C \uC0C9\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4."}`, `${hex ? "Applied the color to" : "Cleared the color of"} ${n} folders named '${folder.name}'.`));
+      if (n > 1) new import_obsidian12.Notice(tr(`'${folder.name}' \uC774\uB984\uC758 \uD3F4\uB354 ${n}\uAC1C\uC5D0 ${hex ? "\uC0C9\uC744 \uC801\uC6A9\uD588\uC2B5\uB2C8\uB2E4." : "\uC9C0\uC815\uD55C \uC0C9\uC744 \uC9C0\uC6E0\uC2B5\uB2C8\uB2E4."}`, `${hex ? "Applied the color to" : "Cleared the color of"} ${n} folders named '${folder.name}'.`));
       void this.saveFolderColors();
     }, this.folderPalette()).open();
   },
@@ -5142,6 +6097,7 @@ var foldersMethods = {
             if (rgb) {
               f.style.setProperty("--lg-folder-icon", folderIconUrl(rgb));
               f.style.setProperty("--lg-file-icon", fileIconUrl(rgb));
+              f.setCssProps(this.glyphProps(glyphInk(rgb)));
             }
           } else if (was) {
             delete f.dataset.lgFc;
@@ -5149,8 +6105,10 @@ var foldersMethods = {
             f.style.removeProperty("--lg-fc");
             f.style.removeProperty("--lg-folder-icon");
             f.style.removeProperty("--lg-file-icon");
+            for (const p of [...f.style].filter((n) => n.startsWith("--lg-glyph-"))) f.style.removeProperty(p);
           }
         }
+        this.applyGlyphs(doc, list);
         this.applyStripes(list);
       }
     }
@@ -5163,10 +6121,116 @@ var foldersMethods = {
   // 막대는 줄마다 하나씩 붙여 두고(stripeBars) 그 줄을 따라 움직인다. 열리고 닫히는 폴더 안쪽 줄은 그 폴더의 보이는 영역으로 자른다.
   // 폭은 목록 안쪽 폭에서 맨 위 단계 줄의 좌우 여백을 뺀 값 (스크롤바가 생겨도 무늬 폭이 줄 폭을 따라 들쭉날쭉하지 않게).
   // 설정에서 끄면(fileStripes) 층을 비운다
+  // 문서 종류 기호 (사용자 요청): 문서마다 어느 보기가 여는지 알아내 그 보기의 아이콘을 종이 기호 안에 그린다 (테마 .lg-glyph).
+  // 종류는 Obsidian 의 확장자 → 보기 목록으로 알고, md 문서는 '<보기 이름>-plugin' 속성으로 안다 (Kanban 의 kanban-plugin 처럼 플러그인들이 쓰는 관례).
+  // 아이콘은 그 보기가 열릴 때 배운 것(learnViewIcons)을 쓴다. 아직 모르는 종류는 data-lg-type 만 달아 테마의 기본 기호(베이스·캔버스·칸반·Excalidraw)가 대신한다
+  applyGlyphs(doc, list) {
+    const reg = this.app.viewRegistry;
+    const byExt = reg && reg.typeByExtension || {};
+    const byType = reg && reg.viewByType || {};
+    const urls = this.glyphUrlMap();
+    this.glyphBodyVars(doc, urls);
+    for (const title of list.querySelectorAll(".nav-file-title[data-path]")) {
+      const path = title.dataset.path;
+      const dot = path.lastIndexOf(".");
+      let type = dot > path.lastIndexOf("/") ? byExt[path.slice(dot + 1).toLowerCase()] : void 0;
+      if (type === "markdown") {
+        type = void 0;
+        const fm = this.app.metadataCache.getCache(path)?.frontmatter;
+        if (fm) {
+          for (const key of Object.keys(fm)) {
+            const t = key.endsWith("-plugin") ? key.slice(0, -7) : "";
+            if (t && t !== "markdown" && t in byType) {
+              type = t;
+              break;
+            }
+          }
+        }
+      }
+      if (type) title.dataset.lgType = type;
+      else if (title.dataset.lgType) delete title.dataset.lgType;
+      const has = !!type && urls.has(type);
+      title.classList.toggle("lg-glyph", has);
+      if (has) title.style.setProperty("--lg-glyph", `var(--lg-glyph-v-${glyphKey(type)})`);
+      else title.style.removeProperty("--lg-glyph");
+    }
+  },
+  // 배운 아이콘마다 종이 안에 그릴 그림(data URL). 아이콘은 Obsidian 아이콘(getIcon)을 받아 반투명 검정으로 칠한다:
+  // 폴더 색으로 물든 종이 위에서는 그 색의 진한 쪽으로 보인다 (사용자 요청)
+  glyphUrlMap(ink = GLYPH_INK) {
+    if (!this.glyphUrls) this.glyphUrls = /* @__PURE__ */ new Map();
+    const have = this.glyphUrls.get(ink);
+    if (have) return have;
+    const map = /* @__PURE__ */ new Map();
+    for (const [type, name] of Object.entries(this.settings.viewIcons || {})) {
+      const svg = (0, import_obsidian12.getIcon)(name);
+      if (!svg) continue;
+      const inner = svg.innerHTML.replace(/currentColor/g, ink);
+      const vb = svg.getAttribute("viewBox") || "0 0 24 24";
+      const vw = parseFloat(vb.split(/[\s,]+/)[2]) || 24;
+      const stroked = svg.hasAttribute("stroke");
+      const paint = stroked ? `fill='none' stroke='${ink}' stroke-width='${+(2.6 * vw / 24).toFixed(2)}' stroke-linecap='round' stroke-linejoin='round'` : `fill='${ink}'`;
+      map.set(type, glyphUrl(`<svg x='2.5' y='6.6' width='9' height='9' viewBox='${vb}' ${paint}>${inner}</svg>`));
+    }
+    this.glyphUrls.set(ink, map);
+    return map;
+  },
+  // 색 지정 폴더에 다는 기호 변수: 그 색으로 그린 기본 기호(--lg-glyph-*)와 배운 보기 아이콘(--lg-glyph-v-*)
+  glyphProps(ink) {
+    const props = {};
+    for (const [name, draw] of Object.entries(GLYPH_FALLBACK)) props[`--lg-glyph-${name}`] = glyphUrl(draw(ink));
+    for (const [type, url] of this.glyphUrlMap(ink)) props[`--lg-glyph-v-${glyphKey(type)}`] = url;
+    return props;
+  },
+  // 문서(창)마다 body 에 종류별 그림 변수를 단다. 바뀐 게 없으면 다시 달지 않는다 (줄이 바뀔 때마다 불린다)
+  glyphBodyVars(doc, urls) {
+    if (!this.glyphDocs) this.glyphDocs = /* @__PURE__ */ new WeakMap();
+    const sig = [...urls.keys()].join(",");
+    if (!doc.body || this.glyphDocs.get(doc) === sig) return;
+    this.glyphDocs.set(doc, sig);
+    const props = {};
+    for (const [type, url] of urls) props[`--lg-glyph-v-${glyphKey(type)}`] = url;
+    doc.body.setCssProps(props);
+  },
+  // 열린 보기의 아이콘을 배운다: 문서를 여는 보기(마크다운 제외)의 아이콘 이름을 기억해 두고, 바뀌면 기호를 다시 그린다.
+  // 문서를 여는 보기만 친다: 그 확장자를 맡은 보기이거나, md 문서의 '<보기 이름>-plugin' 속성이 가리키는 보기.
+  // 개요·백링크처럼 문서에 딸린 옆 패널 보기도 FileView 라 예전엔 같이 배웠다 (측정). 그런 것은 지운다
+  learnViewIcons() {
+    const known = this.settings.viewIcons || {};
+    const next = { ...known };
+    const reg = this.app.viewRegistry;
+    const byExt = reg && reg.typeByExtension || {};
+    let changed = false;
+    this.app.workspace.iterateAllLeaves((leaf) => {
+      const v = leaf.view;
+      if (!(v instanceof import_obsidian12.FileView) || !v.file) return;
+      const type = v.getViewType();
+      if (type === "markdown") return;
+      const ext = v.file.extension.toLowerCase();
+      const fm = ext === "md" ? this.app.metadataCache.getFileCache(v.file)?.frontmatter : void 0;
+      const opens = byExt[ext] === type || !!fm && `${type}-plugin` in fm;
+      if (!opens) {
+        if (type in next) {
+          delete next[type];
+          changed = true;
+        }
+        return;
+      }
+      const icon = v.getIcon();
+      if (!icon || next[type] === icon) return;
+      next[type] = icon;
+      changed = true;
+    });
+    if (!changed) return;
+    this.settings.viewIcons = next;
+    this.glyphUrls = null;
+    void this.saveSettings();
+    this.requestFolderColors(true);
+  },
   applyStripes(list) {
     const m = this.rowExtent(list);
     let layer = list.querySelector(":scope > .lg-stripes");
-    if (!this.settings.fileStripes || import_obsidian10.Platform.isMobile) {
+    if (!this.settings.fileStripes || import_obsidian12.Platform.isMobile) {
       if (layer) layer.remove();
       list.classList.remove("lg-has-stripes");
       return;
@@ -5249,7 +6313,7 @@ var foldersMethods = {
     });
     const out = { rows, rects, lr, gl };
     if (!wide) return out;
-    const right = Math.max(0, lr.left + list.clientLeft + list.clientWidth - wide.right - (import_obsidian10.Platform.isMobile ? gl : 0));
+    const right = Math.max(0, lr.left + list.clientLeft + list.clientWidth - wide.right - (import_obsidian12.Platform.isMobile ? gl : 0));
     const rr = `${Math.round(right * 10) / 10}px`;
     if (list.style.getPropertyValue("--lg-row-ext-r") !== rr) list.style.setProperty("--lg-row-ext-r", rr);
     return out;
@@ -5260,7 +6324,7 @@ var foldersMethods = {
   },
   // 폴더를 열고 닫으면 Obsidian 애니메이션(약 0.2초) 동안 줄이 움직이므로, 그동안 매 프레임 막대를 줄 위치에 다시 맞춘다
   followStripes(list) {
-    if (!this.settings.fileStripes || import_obsidian10.Platform.isMobile) return;
+    if (!this.settings.fileStripes || import_obsidian12.Platform.isMobile) return;
     const win = list.ownerDocument.defaultView || window;
     list.lgStripeUntil = win.performance.now() + STRIPE_FOLLOW_MS;
     if (list.lgStripeLoop) return;
@@ -5286,7 +6350,7 @@ var foldersMethods = {
 };
 
 // src/sidebar.ts
-var import_obsidian11 = require("obsidian");
+var import_obsidian13 = require("obsidian");
 var sidebarMethods = {
   // 좌우 패널 투명(아크릴)에서 패널 위 알약·버튼 밑 구멍 (사용자 요청): 알약 유리는 Obsidian 화면만 떠 와 창 뒤 아크릴을 비추지 못하므로,
   // 패널 바탕은 패널 밖 바로 뒤의 층(.lg-panel-under, 패널 자리·크기를 따라간다)에 칠하고, 그 층을 패널마다 문서 안 SVG 마스크
@@ -5628,7 +6692,7 @@ var sidebarMethods = {
             for (const t of EVENTS) dock.addEventListener(t, onAnim, true);
             for (const t of ["transitionrun", "transitionend", "transitioncancel"]) dock.addEventListener(t, onWidth);
             if (dock.parentElement) dock.parentElement.insertBefore(under, dock);
-            if (import_obsidian11.Platform.isWin) for (const d2 of dots) document.body.appendChild(d2);
+            if (import_obsidian13.Platform.isWin) for (const d2 of dots) document.body.appendChild(d2);
           }
         }
         ro.disconnect();
@@ -5641,7 +6705,7 @@ var sidebarMethods = {
       };
       const refs = [this.app.workspace.on("layout-change", bind)];
       window.addEventListener("resize", schedule);
-      if (import_obsidian11.Platform.isWin) for (const t of DAMAGE_ON) document.addEventListener(t, onActivity, { capture: true, passive: true });
+      if (import_obsidian13.Platform.isWin) for (const t of DAMAGE_ON) document.addEventListener(t, onActivity, { capture: true, passive: true });
       bind();
       return () => {
         ro.disconnect();
@@ -5708,7 +6772,7 @@ var sidebarMethods = {
   markTabList(split, side) {
     if (!split || !split.containerEl) return;
     const st = this.settings;
-    split.containerEl.classList.toggle("lg-tab-list", st.tabAnim === "list" && !import_obsidian11.Platform.isPhone && (st.tabListSides === "both" || st.tabListSides === side));
+    split.containerEl.classList.toggle("lg-tab-list", st.tabAnim === "list" && !import_obsidian13.Platform.isPhone && (st.tabListSides === "both" || st.tabListSides === side));
   },
   setupSidebar(split, side) {
     if (!split || !split.containerEl) return;
@@ -5788,11 +6852,11 @@ var sidebarMethods = {
     const extra = ns ? ns.p.offsetWidth - ns.p.offsetHeight : 0;
     const need = parts.reduce((sum, p) => sum + p.offsetWidth, 0) + gap * Math.max(0, parts.length - 1) - extra;
     const fold = need > row.getBoundingClientRect().width + 0.5;
-    const animate = tabsEl.lgFoldSeen && fold !== was;
+    const animate2 = tabsEl.lgFoldSeen && fold !== was;
     tabsEl.lgFoldSeen = true;
-    if (animate && fold) this.foldGhost(row, header, row.getBoundingClientRect());
+    if (animate2 && fold) this.foldGhost(row, header, row.getBoundingClientRect());
     tabsEl.classList.toggle("lg-nav-fold", fold);
-    if (!animate) return;
+    if (!animate2) return;
     if (fold) {
       if (more) this.navBtnEnter(more);
     } else {
@@ -5873,30 +6937,30 @@ var sidebarMethods = {
     const key = kinds.join(",");
     let entering = null;
     if (row.lgNavKey !== key || row.lgNavLeaf !== leaf) {
-      const animate = row.lgNavKey != null && row.isConnected && row.offsetParent !== null;
+      const animate2 = row.lgNavKey != null && row.isConnected && row.offsetParent !== null;
       row.lgNavKey = key;
       row.lgNavLeaf = leaf;
       if (run.lgPillAnim) run.lgPillAnim.cancel();
       const oldRun = run.querySelectorAll(":scope > .lg-nav-btn:not(.lg-nav-leaving)").length;
       const newRun = kinds.filter((k) => k === "run").length;
-      const pillLeave = animate && oldRun > 0 && newRun === 0;
-      const pillEnter = animate && oldRun === 0 && newRun > 0;
+      const pillLeave = animate2 && oldRun > 0 && newRun === 0;
+      const pillEnter = animate2 && oldRun === 0 && newRun > 0;
       const olds = els(row.querySelectorAll(".lg-nav-btn:not(.lg-nav-leaving)"));
-      if (animate) olds.forEach((old) => this.navBtnMeasure(old));
+      if (animate2) olds.forEach((old) => this.navBtnMeasure(old));
       if (pillLeave) this.navPillPin(run);
-      const restEmpty = animate && rest.querySelector(":scope > .lg-nav-btn:not(.lg-nav-leaving)") && !kinds.some((k) => k !== "run");
+      const restEmpty = animate2 && rest.querySelector(":scope > .lg-nav-btn:not(.lg-nav-leaving)") && !kinds.some((k) => k !== "run");
       if (restEmpty) {
         this.navPillPin(rest);
         window.clearTimeout(rest.lgUnpinTimer);
         rest.lgUnpinTimer = window.setTimeout(() => rest.classList.remove("lg-nav-pinned"), 260);
       }
       for (const old of olds) {
-        if (!animate) old.remove();
+        if (!animate2) old.remove();
         else if (pillLeave && old.parentElement === run) old.classList.add("lg-nav-leaving");
         else this.navBtnLeave(old);
       }
       if (pillLeave) this.navPillLeave(run);
-      if (animate) entering = [];
+      if (animate2) entering = [];
       run.lgPillEnter = !!pillEnter;
       order.forEach((i) => {
         const p = (kinds[i] === "run" ? run : rest).createDiv({ cls: ["clickable-icon", "lg-nav-btn"] });
@@ -5940,7 +7004,7 @@ var sidebarMethods = {
         if (svg) p.appendChild(svg.cloneNode(true));
       }
       const label = b.getAttribute("aria-label") || "";
-      if (p.getAttribute("aria-label") !== label) (0, import_obsidian11.setTooltip)(p, label);
+      if (p.getAttribute("aria-label") !== label) (0, import_obsidian13.setTooltip)(p, label);
       p.classList.toggle("is-active", b.classList.contains("is-active"));
       p.classList.toggle("has-active-menu", b.classList.contains("has-active-menu"));
     });
@@ -6273,7 +7337,7 @@ var sidebarMethods = {
     this.showNavMenu(buttons, anchor, /* @__PURE__ */ new Map());
   },
   showNavMenu(buttons, anchor, snaps) {
-    const menu = new import_obsidian11.Menu();
+    const menu = new import_obsidian13.Menu();
     if (buttons.length === 0) {
       menu.addItem((item) => item.setTitle(tr("\uC0AC\uC6A9\uD560 \uBA54\uB274\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4", "No menu items available")).setDisabled(true));
     }
@@ -6342,7 +7406,7 @@ var sidebarMethods = {
     const head = c && c.querySelector(".workspace-drawer-header");
     const content = c && c.querySelector(".workspace-drawer-active-tab-content");
     if (!head || !content || head.querySelector(":scope > .lg-drawer-more")) return;
-    if (import_obsidian11.Platform.isPhone) {
+    if (import_obsidian13.Platform.isPhone) {
       const win = c.ownerDocument.defaultView || window;
       const put = () => {
         const h = head.offsetHeight;
@@ -6359,7 +7423,7 @@ var sidebarMethods = {
       });
     }
     const btn = head.createDiv({ cls: ["clickable-icon", "workspace-drawer-header-icon", "mod-raised", "lg-drawer-more", INJECTED] });
-    (0, import_obsidian11.setIcon)(btn, "more-horizontal");
+    (0, import_obsidian13.setIcon)(btn, "more-horizontal");
     btn.setAttribute("aria-label", tr("\uBA54\uB274", "Menu"));
     const buttons = () => {
       const bar = content.querySelector(".nav-buttons-container");
@@ -6378,7 +7442,7 @@ var sidebarMethods = {
       if (btn.ownerDocument.querySelector(".menu:not(.lg-menu-ghost)")) this.tellMenus(btn, "mousedown");
       const list = buttons();
       if (!list.length) return;
-      const menu = new import_obsidian11.Menu();
+      const menu = new import_obsidian13.Menu();
       for (const b of list) {
         const svg = b.querySelector("svg");
         const icon = svg && strs(svg.classList).find((k) => k !== "svg-icon");
@@ -6443,7 +7507,11 @@ var sidebarMethods = {
 };
 
 // src/tabs.ts
-var import_obsidian12 = require("obsidian");
+var import_obsidian14 = require("obsidian");
+var ACT_SRC = /* @__PURE__ */ new WeakMap();
+var ACT_KEY = /* @__PURE__ */ new WeakMap();
+var ACT_LIST = /* @__PURE__ */ new WeakMap();
+var BM_SRC = /* @__PURE__ */ new WeakMap();
 var tabsMethods = {
   // 탭 그룹 요소에서 지금 선택된 리프를 찾는다
   activeLeafOf(tabsEl) {
@@ -6458,8 +7526,8 @@ var tabsMethods = {
   },
   makeButton(cls, icon, tooltip, onClick) {
     const el = createDiv({ cls: ["clickable-icon", INJECTED, cls] });
-    (0, import_obsidian12.setIcon)(el, icon);
-    if (tooltip) (0, import_obsidian12.setTooltip)(el, tooltip);
+    (0, import_obsidian14.setIcon)(el, icon);
+    if (tooltip) (0, import_obsidian14.setTooltip)(el, tooltip);
     el.addEventListener("mousedown", (e) => {
       e.stopPropagation();
       el.lgWasOpen = el.classList.contains("has-active-menu");
@@ -6485,6 +7553,7 @@ var tabsMethods = {
       nav.appendChild(
         this.makeButton("lg-tab-back", "arrow-left", tr("\uB4A4\uB85C", "Back"), () => this.goHistory(tabsEl, "back"))
       );
+      nav.createSpan({ cls: ["lg-nav-sep", INJECTED] });
       nav.appendChild(
         this.makeButton("lg-tab-forward", "arrow-right", tr("\uC55E\uC73C\uB85C", "Forward"), () => this.goHistory(tabsEl, "forward"))
       );
@@ -6497,13 +7566,13 @@ var tabsMethods = {
         const leaf = this.activeLeafOf(tabsEl);
         const v = leaf && leaf.view;
         if (isWebView(v) && typeof v.toggleReaderMode === "function") v.toggleReaderMode();
-        else if (v instanceof import_obsidian12.MarkdownView && typeof v.onSwitchView === "function") v.onSwitchView(e);
+        else if (v instanceof import_obsidian14.MarkdownView && typeof v.onSwitchView === "function") v.onSwitchView(e);
         window.setTimeout(() => this.requestRefresh(), 50);
       });
       const tabList = header.querySelector(":scope > .workspace-tab-header-tab-list");
       header.insertBefore(mode, tabList || null);
     }
-    if (!import_obsidian12.Platform.isPhone) {
+    if (!import_obsidian14.Platform.isPhone) {
       const newTab = header.querySelector(".workspace-tab-header-new-tab");
       const list = header.querySelector(".workspace-tab-header-tab-list");
       let tools = header.querySelector(":scope > .lg-tab-tools");
@@ -6512,15 +7581,16 @@ var tabsMethods = {
         if (header.lgBalanceObs) header.lgBalanceObs.observe(tools);
       }
       if (tools.parentElement !== header) header.insertBefore(tools, newTab && newTab.parentElement === header ? newTab : mode);
-      const want = [newTab, mode, list].filter(Boolean);
+      const acts = this.actionProxies(tools, this.activeLeafOf(tabsEl));
+      const want = [...acts, mode, newTab, list].filter(Boolean);
       const kids = els(tools.children);
       if (kids.length !== want.length || kids.some((c, i) => c !== want[i])) want.forEach((el) => tools.appendChild(el));
     }
     let path = header.querySelector(":scope > .lg-path");
     if (!path) {
       path = createDiv({ cls: ["lg-path", INJECTED] });
-      const pill = path.createDiv("lg-path-pill");
-      pill.addEventListener(
+      const pill2 = path.createDiv("lg-path-pill");
+      pill2.addEventListener(
         "click",
         (e) => {
           if (!tabsEl.classList.contains("lg-mini")) return;
@@ -6530,13 +7600,13 @@ var tabsMethods = {
         },
         true
       );
-      pill.createDiv("lg-path-text");
+      pill2.createDiv("lg-path-text");
       for (const type of ["keydown", "keyup", "keypress"]) {
-        pill.addEventListener(type, (e) => {
+        pill2.addEventListener(type, (e) => {
           if (isEl(e.target) && (e.target.isContentEditable || e.target.tagName === "INPUT") && !e.ctrlKey && !e.metaKey && !e.altKey && !WEB_KEYS_PASS.has(e.key)) e.stopPropagation();
         });
       }
-      pill.appendChild(
+      pill2.appendChild(
         this.makeButton(
           "lg-path-menu",
           "menu",
@@ -6567,12 +7637,147 @@ var tabsMethods = {
     });
     for (const leaf of leaves) {
       this.setupTabMenu(leaf);
+      this.tabBookmark(leaf);
       const v = leaf.view;
       if (v && v.moreOptionsButtonEl) v.moreOptionsButtonEl.addClass(HIDDEN);
       if (v && v.modeButtonEl) v.modeButtonEl.addClass(HIDDEN);
     }
     this.keepDragBand(header);
     this.syncTabBar(tabsEl, nav, mode);
+  },
+  // 보기 헤더의 버튼 가운데 Obsidian 이 원래 두는 것(더 보기·읽기 모드·북마크, 탭 줄로 옮겨 쓴다)을 뺀 나머지마다 대리 버튼을 만든다.
+  // 대리는 원래 버튼을 복제하고, 누르면 원래 버튼을 누른다. 이름·기호가 바뀌면(Excalidraw 미리보기 전환 등) 새로 복제한다.
+  // 보기 헤더를 그대로 보이는 Kanban 과, 주소 줄을 따로 옮기는 웹 뷰어는 뺀다
+  actionProxies(tools, leaf) {
+    const v = leaf ? leaf.view : null;
+    let src = [];
+    const web = !!v && isWebView(v);
+    if (v && !web && v.getViewType() !== "kanban") {
+      const more2 = v.moreOptionsButtonEl;
+      const modeBtn = v.modeButtonEl;
+      src = els(v.containerEl.querySelectorAll(":scope > .view-header .view-actions > .view-action")).filter(
+        (b) => b !== more2 && b !== modeBtn && !b.classList.contains("mod-bookmark") && !b.classList.contains(HIDDEN)
+      );
+    }
+    const own = (b) => !strs(b.classList).some((c) => c !== "clickable-icon" && c !== "view-action" && !/^(mod|is|has)-/.test(c));
+    const ordered = src.filter(own).concat(src.filter((b) => !own(b)));
+    const room = this.actionRoom(tools);
+    const fits = ordered.length <= room;
+    const shown = fits ? ordered : ordered.slice(0, Math.max(0, room - 1));
+    const rest = fits ? [] : ordered.slice(shown.length);
+    let more = tools.querySelector(":scope > .lg-act-more");
+    if (rest.length) {
+      if (!more) {
+        more = this.makeButton("lg-act-btn", "puzzle", tr("\uD50C\uB7EC\uADF8\uC778 \uBC84\uD2BC", "Plugin buttons"), (e, el) => this.toggleMenu(el, () => this.openActionMenu(el)));
+        more.classList.add("lg-act-more", INJECTED);
+      }
+      ACT_LIST.set(more, rest);
+    } else if (more) {
+      more.remove();
+      more = null;
+    }
+    const keyOf = (b) => `${b.getAttribute("aria-label") || ""}|${b.querySelector("svg")?.getAttribute("class") || ""}`;
+    const old = els(tools.querySelectorAll(":scope > .lg-act-btn:not(.lg-act-more)"));
+    const out = shown.map((b) => {
+      const key = keyOf(b);
+      const had = old.find((p2) => ACT_SRC.get(p2) === b && ACT_KEY.get(p2) === key);
+      if (had) return had;
+      const p = b.cloneNode(true);
+      p.className = `clickable-icon lg-act-btn ${INJECTED}`;
+      p.addEventListener("click", () => {
+        b.click();
+        window.setTimeout(() => this.requestRefresh(), 60);
+      });
+      ACT_SRC.set(p, b);
+      ACT_KEY.set(p, key);
+      return p;
+    });
+    old.forEach((p) => {
+      if (!out.includes(p)) p.remove();
+    });
+    return more ? out.concat(more) : out;
+  },
+  // 탭 줄 오른쪽 묶음에 더 둘 수 있는 버튼 수 (0~ACT_MAX). 가운데 알약(경로 알약이나 탭 줄, 최소 --lg-tab-w)이 가운데에 남도록
+  // 오른쪽 무리는 (탭 줄 폭 − 가운데 최소 폭) ÷ 2 까지 쓴다. 탭 줄 폭이 바뀌면 balanceTabs 가 다시 맞추게 한다
+  actionRoom(tools) {
+    const header = tools.parentElement;
+    if (!header) return ACT_MAX;
+    const hs = getComputedStyle(header);
+    const ts = getComputedStyle(tools);
+    const w = header.clientWidth - parseFloat(hs.paddingLeft) - parseFloat(hs.paddingRight);
+    const center = parseFloat(hs.getPropertyValue("--lg-tab-w")) || 320;
+    const gap = parseFloat(hs.columnGap) || 0;
+    const inGap = parseFloat(ts.columnGap) || 0;
+    const btn = parseFloat(hs.getPropertyValue("--lg-inner")) || 28;
+    const per = btn + inGap;
+    const acts = tools.querySelectorAll(":scope > .lg-act-btn").length;
+    const base = tools.offsetWidth - acts * per;
+    const free = (w - center) / 2 - gap - base;
+    return Math.max(0, Math.min(ACT_MAX, Math.floor(free / per)));
+  },
+  // 퍼즐 버튼 메뉴: 묶인 버튼마다 항목 하나. 이름은 원래 버튼 이름의 첫 줄, 기호는 원래 버튼 기호. 누르면 원래 버튼을 누른다
+  openActionMenu(anchor) {
+    const doc = anchor.ownerDocument;
+    const menu = new import_obsidian14.Menu();
+    for (const b of ACT_LIST.get(anchor) || []) {
+      const icon = strs(b.querySelector("svg")?.classList || []).find((c) => c !== "svg-icon") || null;
+      menu.addItem(
+        (item) => item.setTitle((b.getAttribute("aria-label") || "").split("\n")[0]).setIcon(icon).onClick(() => {
+          b.click();
+          window.setTimeout(() => this.requestRefresh(), 60);
+        })
+      );
+    }
+    const r = anchor.getBoundingClientRect();
+    menu.setParentElement(anchor);
+    menu.showAtPosition({ x: r.right, y: layoutBottom(anchor) + MENU_DROP, left: true }, doc);
+  },
+  // 북마크한 문서: Obsidian 은 보기 헤더에 색칠된 북마크 기호(.view-action.mod-bookmarked)를 띄우는데 테마가 보기 헤더를 숨긴다.
+  // 경로 표시면 경로 알약 오른쪽 끝(웹 페이지는 새로고침 왼쪽)에 같은 기호를 두고(누르면 원래 기호를 누른다),
+  // 한 줄 보기면 탭의 X 자리에 둔다(탭에 마우스를 올리면 X, 테마). 북마크가 바뀌면 원래 기호의 클래스가 바뀌므로 지켜본다 (사용자 요청)
+  bookmarkOf(view) {
+    const b = view ? view.containerEl.querySelector(":scope > .view-header .view-actions > .view-action.mod-bookmark") : null;
+    if (b) {
+      if (!this.bmWatched) this.bmWatched = /* @__PURE__ */ new WeakSet();
+      if (!this.bmWatched.has(b)) {
+        this.bmWatched.add(b);
+        const win = b.ownerDocument.defaultView || window;
+        const obs = new win.MutationObserver(() => this.requestRefresh());
+        obs.observe(b, { attributes: true, attributeFilter: ["class"] });
+        this.observers.push(obs);
+      }
+    }
+    return b && b.classList.contains("mod-bookmarked") ? b : null;
+  },
+  tabBookmark(leaf) {
+    const head = leaf.tabHeaderEl;
+    const close = head && head.querySelector(".workspace-tab-header-inner-close-button");
+    if (!close) return;
+    const on = !!this.bookmarkOf(leaf.view);
+    head.classList.toggle("lg-bm", on);
+    let mark = close.querySelector(":scope > .lg-tab-bm");
+    if (on && !mark) {
+      mark = close.createSpan({ cls: ["lg-tab-bm", INJECTED] });
+      (0, import_obsidian14.setIcon)(mark, "bookmark");
+    } else if (!on && mark) mark.remove();
+  },
+  pathBookmark(tabsEl, view) {
+    const pill2 = tabsEl.querySelector(":scope > .workspace-tab-header-container > .lg-path > .lg-path-pill");
+    if (!pill2) return;
+    const src = this.bookmarkOf(view);
+    let btn = pill2.querySelector(":scope > .lg-path-bm");
+    pill2.classList.toggle("lg-path-bm-on", !!src);
+    if (!src) {
+      if (btn) btn.remove();
+      return;
+    }
+    if (!btn) btn = this.makeButton("lg-path-bm", "bookmark", "", () => BM_SRC.get(btn)?.click());
+    BM_SRC.set(btn, src);
+    (0, import_obsidian14.setTooltip)(btn, src.getAttribute("aria-label") || tr("\uBD81\uB9C8\uD06C", "Bookmark"));
+    const reload = pill2.querySelector(":scope > .view-header-reload-button");
+    if (reload) {
+      if (btn.nextElementSibling !== reload) pill2.insertBefore(btn, reload);
+    } else if (btn.parentElement !== pill2 || btn.nextElementSibling) pill2.appendChild(btn);
   },
   // 창 끌기 띠 (CSS: .lg-drag-band, 탭 줄 첫 줄만 창을 잡는다). 끌기 영역은 문서 순서대로 겹쳐 뒤에 오는 버튼의 끌기 제외가
   // 띠를 파내므로, 띠는 늘 탭 줄의 첫 자식이어야 한다. Obsidian 은 패널을 닫을 때 패널 열기 버튼을 탭 줄 맨 앞에 넣는데,
@@ -6595,31 +7800,45 @@ var tabsMethods = {
   // 리본에 있던 왼쪽 패널 열기 토글은 리본이 숨으면 Obsidian 이 스스로 이 탭 줄 맨 왼쪽으로 옮긴다(패널이 닫혀 있을 때).
   // 데스크톱·태블릿(태블릿은 서랍 안 리본의 실행 버튼 묶음을 숨긴다, styles.css), 편집창의 맨 위 왼쪽 탭 묶음 하나에만 단다
   setupRibbonButtons(tabsEl, header, nav) {
-    if (import_obsidian12.Platform.isPhone) return;
+    if (import_obsidian14.Platform.isPhone) return;
     const root = this.app.workspace.rootSplit;
     const first = !!root && root.containerEl.querySelector(".workspace-tabs") === tabsEl;
-    let rib = header.querySelector(":scope > .lg-rib-menu");
+    let rib = header.querySelector(":scope > .lg-rib-menu:not(.lg-junk)");
     if (!first) {
       if (rib) rib.remove();
-      return;
-    }
-    if (!rib) {
+    } else if (!rib) {
       rib = this.makeButton("lg-rib-menu", "layout-grid", tr("\uB9AC\uBCF8 \uBA54\uB274", "Ribbon menu"), (e, el) => this.toggleMenu(el, () => this.openRibbonMenu(el)));
       header.insertBefore(rib, nav);
       if (header.lgBalanceObs) header.lgBalanceObs.observe(rib);
     }
+    let junk = header.querySelector(":scope > .lg-junk");
+    if (!first || this.ribbonButtons(header.ownerDocument, true).length === 0) {
+      if (junk) junk.remove();
+      return;
+    }
+    if (!junk) {
+      junk = this.makeButton("lg-rib-menu", "ellipsis", tr("\uAE30\uD0C0 \uBC84\uD2BC", "Other buttons"), (e, el) => this.toggleMenu(el, () => this.openRibbonMenu(el, true)));
+      junk.classList.add("lg-junk");
+      if (header.lgBalanceObs) header.lgBalanceObs.observe(junk);
+    }
+    if (rib && rib.nextElementSibling !== junk) rib.after(junk);
+  },
+  // 리본의 보이는 버튼들 (설정 외관 > 리본 메뉴에서 숨긴 것은 뺀다). 순서는 리본에 놓인 순서
+  ribbonButtons(doc, right) {
+    const win = doc.defaultView || window;
+    const rb = right ? null : this.app.workspace.leftRibbon;
+    const hidden = new Set((rb && rb.items || []).filter((i) => i.hidden).map((i) => i.buttonEl));
+    const sel = right ? ".workspace-ribbon:is(.mod-right, .mod-secondary) .side-dock-actions .side-dock-ribbon-action" : ":is(.workspace-ribbon:is(.mod-left, .mod-primary), .workspace-drawer-ribbon) .side-dock-actions .side-dock-ribbon-action";
+    return els(doc.querySelectorAll(sel)).filter((b) => !hidden.has(b) && !b.hidden && win.getComputedStyle(b).display !== "none");
   },
   // 숨긴 왼쪽 리본의 버튼들을 메뉴로 보인다. 항목을 누르면 원래 리본 버튼을 대신 눌러 Obsidian·플러그인 동작을 그대로 쓴다
-  openRibbonMenu(anchor) {
+  // right: 오른쪽 리본 버튼(기타 버튼 메뉴)
+  openRibbonMenu(anchor, right = false) {
     const doc = anchor.ownerDocument;
     const win = doc.defaultView || window;
-    const rb = this.app.workspace.leftRibbon;
-    const hidden = new Set((rb && rb.items || []).filter((i) => i.hidden).map((i) => i.buttonEl));
-    const buttons = els(doc.querySelectorAll(":is(.workspace-ribbon:is(.mod-left, .mod-primary), .workspace-drawer-ribbon) .side-dock-actions .side-dock-ribbon-action")).filter(
-      (b) => !hidden.has(b) && !b.hidden && win.getComputedStyle(b).display !== "none"
-    );
-    const extra = els(doc.querySelectorAll(".workspace-drawer-ribbon .side-dock-settings [aria-label]"));
-    const menu = new import_obsidian12.Menu();
+    const buttons = this.ribbonButtons(doc, right);
+    const extra = right ? [] : els(doc.querySelectorAll(".workspace-drawer-ribbon .side-dock-settings [aria-label]"));
+    const menu = new import_obsidian14.Menu();
     if (buttons.length === 0 && extra.length === 0) menu.addItem((item) => item.setTitle(tr("\uB9AC\uBCF8\uC5D0 \uBC84\uD2BC\uC774 \uC5C6\uC2B5\uB2C8\uB2E4", "No ribbon buttons")).setDisabled(true));
     let sep = buttons.length > 0;
     for (const b of buttons.concat(extra)) {
@@ -6716,11 +7935,15 @@ var tabsMethods = {
     const now = (header.ownerDocument.defaultView || window).performance.now();
     if (header.lgBalanceAt != null && now - header.lgBalanceAt < 4) return;
     header.lgBalanceAt = now;
+    if (Math.abs(header.clientWidth - (header.lgFitW || 0)) > 8) {
+      header.lgFitW = header.clientWidth;
+      this.requestRefresh();
+    }
     const hr = header.getBoundingClientRect();
     const cs = getComputedStyle(header);
     const path = header.querySelector(":scope > .lg-path");
     const stacked = tabsEl.classList.contains("mod-stacked");
-    const anchor = !import_obsidian12.Platform.isPhone && path && (stacked || this.settings.showPath) ? path : inner;
+    const anchor = !import_obsidian14.Platform.isPhone && path && (stacked || this.settings.showPath) ? path : inner;
     const styles = /* @__PURE__ */ new Map();
     const styleOf = (c) => {
       let v = styles.get(c);
@@ -6844,14 +8067,14 @@ var tabsMethods = {
     el.dataset.path = key;
     this.returnTitle(el);
     el.empty();
-    const pill = el.parentElement;
-    if (pill) pill.classList.toggle("lg-path-web", !!web);
+    const pill2 = el.parentElement;
+    if (pill2) pill2.classList.toggle("lg-path-web", !!web);
     if (web) {
       el.lgMoved = [];
-      const menu = pill && pill.querySelector(":scope > .lg-path-menu");
+      const menu = pill2 && pill2.querySelector(":scope > .lg-path-menu");
       for (const [node, holder, before] of [
         [web.addr, el, null],
-        [web.reload, pill, menu]
+        [web.reload, pill2, menu]
       ]) {
         if (!node || !node.parentElement || !holder) continue;
         el.lgMoved.push({ node, parent: node.parentElement, next: node.nextSibling, holder });
@@ -6900,15 +8123,22 @@ var tabsMethods = {
       parent.insertBefore(node, next && next.parentElement === parent ? next : null);
     }
   },
+  // 보기의 버튼 줄 (Bases 툴바, Kanban 보드 버튼 줄). 없거나 숨어 있으면 null
+  viewBar(view) {
+    const type = view.getViewType();
+    const sel = type === "bases" ? ":scope > .view-content > .bases-header" : type === "kanban" ? ":scope > .view-header" : null;
+    const el = sel ? view.containerEl.querySelector(sel) : null;
+    return el && el.getClientRects().length ? el : null;
+  },
   // 경로 알약이 첫 줄에 보이는지 (경로 표시를 켰거나 탭 쌓기 모드, 휴대폰 제외)
   pathShown(tabsEl) {
-    return !import_obsidian12.Platform.isPhone && (tabsEl.classList.contains("mod-stacked") || !!this.settings.showPath);
+    return !import_obsidian14.Platform.isPhone && (tabsEl.classList.contains("mod-stacked") || !!this.settings.showPath);
   },
   // 원래 버튼의 상태를 새 버튼에 옮긴다
   syncTabBar(tabsEl, nav, mode) {
     const leaf = this.activeLeafOf(tabsEl);
     const view = leaf && leaf.view;
-    const isWeb = isWebView(view) && !import_obsidian12.Platform.isPhone;
+    const isWeb = isWebView(view) && !import_obsidian14.Platform.isPhone;
     if (isWeb && view.headerEl && view.headerEl.classList.contains("view-header-always-show")) {
       view.headerEl.classList.remove("view-header-always-show");
       view.headerEl.classList.add("lg-web-head");
@@ -6929,7 +8159,8 @@ var tabsMethods = {
     this.webTab(tabsEl, leaf, false);
     this.updatePath(tabsEl, view);
     this.webTab(tabsEl, leaf, true);
-    if (isWeb && !import_obsidian12.Platform.isPhone) this.webMouseWire(view);
+    this.pathBookmark(tabsEl, view);
+    if (isWeb && !import_obsidian14.Platform.isPhone) this.webMouseWire(view);
     const slab = tabsEl.querySelector(":scope > .workspace-tab-header-container > .lg-slab");
     const switched = !!slab && tabsEl.lgSlabView !== view;
     tabsEl.lgSlabView = view;
@@ -6942,7 +8173,7 @@ var tabsMethods = {
       tabsEl.classList.remove("lg-web-tinted");
       const h = tabsEl.querySelector(":scope > .workspace-tab-header-container");
       if (h) {
-        h.classList.remove("lg-glass-mix");
+        h.classList.remove("lg-glass-mix", "lg-glass-dk");
         h.style.removeProperty("--lg-glass-t");
       }
     }
@@ -6950,7 +8181,9 @@ var tabsMethods = {
       void slab.offsetWidth;
       slab.classList.remove("lg-no-tr");
     }
-    const isMd = view instanceof import_obsidian12.MarkdownView;
+    const bar = view && !import_obsidian14.Platform.isMobile ? this.viewBar(view) : null;
+    tabsEl.classList.toggle("lg-slab-ext", !!bar);
+    const isMd = view instanceof import_obsidian14.MarkdownView;
     mode.classList.remove(HIDDEN);
     mode.classList.toggle("lg-mode-off", !isMd && !isWeb);
     this.balanceTabs(tabsEl);
@@ -6969,17 +8202,17 @@ var tabsMethods = {
       const icon = isWeb ? "glasses" : reading ? "edit-3" : "book-open";
       const key = `${icon}:${reading}`;
       if (mode.dataset.icon !== key) {
-        (0, import_obsidian12.setIcon)(mode, icon);
+        (0, import_obsidian14.setIcon)(mode, icon);
         mode.dataset.icon = key;
-        if (isWeb) (0, import_obsidian12.setTooltip)(mode, reading ? tr("\uC6F9 \uD398\uC774\uC9C0\uB85C \uBCF4\uAE30", "Show web page") : tr("\uC77D\uAE30 \uBAA8\uB4DC", "Reader view"));
-        else (0, import_obsidian12.setTooltip)(mode, reading ? tr("\uD3B8\uC9D1 \uBAA8\uB4DC\uB85C \uC804\uD658", "Switch to editing view") : tr("\uC77D\uAE30 \uBAA8\uB4DC\uB85C \uC804\uD658", "Switch to reading view"));
+        if (isWeb) (0, import_obsidian14.setTooltip)(mode, reading ? tr("\uC6F9 \uD398\uC774\uC9C0\uB85C \uBCF4\uAE30", "Show web page") : tr("\uC77D\uAE30 \uBAA8\uB4DC", "Reader view"));
+        else (0, import_obsidian14.setTooltip)(mode, reading ? tr("\uD3B8\uC9D1 \uBAA8\uB4DC\uB85C \uC804\uD658", "Switch to editing view") : tr("\uC77D\uAE30 \uBAA8\uB4DC\uB85C \uC804\uD658", "Switch to reading view"));
       }
     }
   }
 };
 
 // src/web.ts
-var import_obsidian13 = require("obsidian");
+var import_obsidian15 = require("obsidian");
 var webMethods = {
   // 웹 뷰어 탭 줄 축소 (사용자 요청): 보이는 웹 탭의 페이지 스크롤 위치를 물어 편집창과 같은 판단(miniFeed)에 넣는다.
   // 같은 질문으로 마우스 옆 버튼 요청(WEB_MOUSE_SCRIPT)도 받는다.
@@ -7036,11 +8269,21 @@ var webMethods = {
     set();
     const watch = this.watchWebview(view, ["did-navigate", "did-navigate-in-page"], () => window.setTimeout(set, 0));
     const input = addr.querySelector("input");
-    const pill = el.parentElement;
-    const typing = () => pill && pill.classList.toggle("lg-web-typing", !!input && input.ownerDocument.activeElement === input);
+    const pill2 = el.parentElement;
+    const typing = () => {
+      const doc = input ? input.ownerDocument : null;
+      const on = !!doc && doc.activeElement === input && doc.hasFocus();
+      if (pill2) pill2.classList.toggle("lg-web-typing", on);
+      if (doc) doc.body.classList.toggle("lg-addr-typing", on);
+    };
+    const win = input ? input.ownerDocument.defaultView : null;
     if (input) {
       input.addEventListener("focus", typing);
       input.addEventListener("blur", typing);
+    }
+    if (win) {
+      win.addEventListener("blur", typing);
+      win.addEventListener("focus", typing);
     }
     typing();
     el.lgWebUrl = {
@@ -7052,7 +8295,12 @@ var webMethods = {
           input.removeEventListener("focus", typing);
           input.removeEventListener("blur", typing);
         }
-        if (pill) pill.classList.remove("lg-web-typing");
+        if (win) {
+          win.removeEventListener("blur", typing);
+          win.removeEventListener("focus", typing);
+        }
+        if (pill2) pill2.classList.remove("lg-web-typing");
+        if (input) input.ownerDocument.body.classList.remove("lg-addr-typing");
       }
     };
   },
@@ -7124,7 +8372,7 @@ var webMethods = {
     const title = inner.querySelector(":scope > .workspace-tab-header-inner-title");
     const menu = inner.querySelector(":scope > .lg-tab-menu");
     const hostEl = createDiv({ cls: ["lg-web-host", INJECTED], text: webHost(view) });
-    (0, import_obsidian13.setTooltip)(hostEl, tr("\uC8FC\uC18C \uACE0\uCE58\uAE30", "Edit address"));
+    (0, import_obsidian15.setTooltip)(hostEl, tr("\uC8FC\uC18C \uACE0\uCE58\uAE30", "Edit address"));
     for (const type of ["mousedown", "pointerdown"]) hostEl.addEventListener(type, (e) => e.stopPropagation());
     hostEl.addEventListener("click", (e) => {
       e.preventDefault();
@@ -7437,8 +8685,10 @@ var webMethods = {
     const L = c ? colorLightness(c, tabs.ownerDocument) : null;
     if (header) {
       header.classList.toggle("lg-glass-mix", L != null);
-      if (L != null) header.setCssProps({ "--lg-glass-t": String(Math.round(Math.min(1, Math.max(0, (GLASS_MIX_HI - L) / (GLASS_MIX_HI - GLASS_MIX_LO))) * 1e3) / 1e3) });
+      const t = L != null ? Math.round(Math.min(1, Math.max(0, (GLASS_MIX_HI - L) / (GLASS_MIX_HI - GLASS_MIX_LO))) * 1e3) / 1e3 : 0;
+      if (L != null) header.setCssProps({ "--lg-glass-t": String(t) });
       else header.style.removeProperty("--lg-glass-t");
+      header.classList.toggle("lg-glass-dk", L != null && t >= 0.5);
     }
   },
   // 색을 칠한 웹 탭 줄에서 연 메뉴·주소 카드·주소 제안도 같은 색 유리로 (사용자 요청). from 이 그 탭 줄이나 이미 칠한 팝업 안에 있으면
@@ -7459,6 +8709,7 @@ var webMethods = {
     }
     if (!tint) return;
     el.classList.add("lg-web-pop", "lg-glass-mix");
+    el.classList.toggle("lg-glass-dk", parseFloat(t || "0") >= 0.5);
     el.setCssProps({ "--lg-web-tint": tint, "--lg-glass-t": t || "0" });
   },
   // 설정을 켜고 끌 때: 끄면 페이지 여백·탭 줄 색을 되돌리고, 켜면 다음 갱신 때 다시 넣는다
@@ -7471,7 +8722,7 @@ var webMethods = {
       if (!doc.body) continue;
       doc.querySelectorAll(".lg-web-tinted").forEach((el) => el.classList.remove("lg-web-tinted"));
       doc.querySelectorAll(".mod-root .lg-glass-mix").forEach((el) => {
-        el.classList.remove("lg-glass-mix");
+        el.classList.remove("lg-glass-mix", "lg-glass-dk");
         el.style.removeProperty("--lg-glass-t");
       });
     }
@@ -7491,7 +8742,7 @@ var webMethods = {
 };
 
 // src/main.ts
-var Base = import_obsidian14.Plugin;
+var Base = import_obsidian16.Plugin;
 var GlassShelfCompanion = class extends Base {
   // 테마가 켜져 있는 동안의 모든 동작은 자식 Component(this.core) 하나에 묶는다. 테마가 바뀌면(켜짐·꺼짐) 그 자식만 떼고 붙인다.
   // 예전엔 플러그인이 스스로 껐다 켰는데(app.plugins 비공개 API), 그 방식은 심사 지적 대상이고 끌 때마다 옛 인스턴스가 남기는 것이 생겼다 (검토 지적).
@@ -7507,4 +8758,4 @@ var GlassShelfCompanion = class extends Base {
     await this.syncCore();
   }
 };
-Object.assign(GlassShelfCompanion.prototype, coreMethods, eventsMethods, pressMethods, kanbanMethods, menusMethods, morphMethods, foldersMethods, sidebarMethods, tabsMethods, webMethods);
+Object.assign(GlassShelfCompanion.prototype, coreMethods, eventsMethods, eventsPressMethods, eventsMenusMethods, pressMethods, kanbanMethods, menusMethods, morphMethods, foldersMethods, sidebarMethods, tabsMethods, webMethods);

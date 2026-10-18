@@ -1,9 +1,8 @@
 import { Platform } from "obsidian";
 import { INJECTED, els, isEl, tgPad } from "./util";
-import { HOVER_GLASS, PRESS_POP, PRESS_DELAY_MS, HOLD_RETURN_MS, HOLD_EASE_SPAN, RIPPLE_HOLD, PRESS_SLOP, EASE, DRAG_SCROLL_ZONE, DRAG_SCROLL_MAX, TASK_PRESS_MS, PANEL_TOGGLES, MENU_RIPPLE_FROM, TAB_RIPPLE_K, PRESS_RIPPLE, PRESS_PILL, PRESS_SCALE } from "./constants";
+import { HOVER_GLASS, MAGNET_COMPACT, EASE, DRAG_SCROLL_ZONE, DRAG_SCROLL_MAX, TASK_PRESS_MS } from "./constants";
 import { LENS_TOGGLE } from "./refract";
 import type { GlassShelfPlugin } from "./host";
-import type { PressInfo } from "./internal";
 
 export const eventsMethods = {
   // 별도 창(설정·커뮤니티)의 창 제목을 왼쪽 요소 끝과 창 제어 알약 사이 가운데에 둔다
@@ -40,7 +39,7 @@ export const eventsMethods = {
   // 끌기 중 자동 스크롤 (패널 목록). 테마는 목록을 떠 있는 탭 줄·보관함 줄 밑까지 늘려 두므로, 목록의 실제 위·아래 끝이
   // 그 줄들에 가려 Obsidian(브라우저)의 끝 근처 자동 스크롤이 걸리지 않았다. 보이는 위·아래 끝에서 DRAG_SCROLL_ZONE 안에 두면
   // 가까울수록 빠르게 스크롤한다
-  attachDragScroll(this: GlassShelfPlugin, doc: Document, win: Window) {
+  attachDragScroll(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     let pos: { x: number; y: number } | null = null;
     let frame = 0;
     const visibleEdges = (sc: HTMLElement) => {
@@ -112,7 +111,27 @@ export const eventsMethods = {
     const win = doc.defaultView || window;
     if (!Platform.isMobile) this.attachDragScroll(doc, win);
     this.applyBodyState(doc);
+    this.attachModalWatch(doc, win);
+    this.attachExplorerFocus(doc, win);
+    this.attachScrollWatch(doc, win);
+    this.attachStatusHeight(doc, win);
+    this.attachWcHover(doc, win);
+    this.attachMagnet(doc, win);
+    this.attachPressFx(doc, win);
+    this.attachKanbanEvents(doc, win);
+    this.attachMenuEvents(doc, win);
+    this.attachCanvasEvents(doc, win);
+    this.attachTabUnlock(doc, win);
+    this.attachHeadSearch(doc, win);
+    this.attachGraphEvents(doc, win);
+    this.attachToggleSlider(doc, win);
+    this.attachPanelTabScroll(doc, win);
+    this.attachTaskEvents(doc, win);
+    this.attachTitleWatch(doc, win);
+  },
 
+  // 설정 창 등 창과 Bases 툴바 메뉴의 드롭다운 줄 표시
+  attachModalWatch(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 설정 창 등 창(.modal-container)과 Bases 툴바 메뉴(뷰 설정 등)의 드롭다운 줄 표시 (markDropdownRows).
     // body 의 직속 자식만 보고, 창·메뉴가 붙으면 그 안을 지켜본다
     const watchModal = (m: HTMLElement) => {
@@ -121,7 +140,15 @@ export const eventsMethods = {
       if (this.ddWatched.has(m)) return;
       this.ddWatched.add(m);
       this.markDropdownRows(m);
-      const o = new win.MutationObserver(() => this.markDropdownRows(m));
+      // 창 안이 여러 번 바뀌어도 한 프레임에 한 번만 다시 표시한다 (검토 지적: 바뀔 때마다 동기로 다시 훑었다)
+      let pend = 0;
+      const o = new win.MutationObserver(() => {
+        if (pend) return;
+        pend = win.requestAnimationFrame(() => {
+          pend = 0;
+          if (m.isConnected) this.markDropdownRows(m);
+        });
+      });
       o.observe(m, { childList: true, subtree: true });
       this.observers.push(o);
     };
@@ -129,7 +156,10 @@ export const eventsMethods = {
     const bodyObs = new win.MutationObserver((recs) => recs.forEach((r) => r.addedNodes.forEach(watchModal)));
     bodyObs.observe(doc.body, { childList: true });
     this.observers.push(bodyObs);
+  },
 
+  // 마지막으로 누른 곳(파일 탐색기·좌우 패널) 표시
+  attachExplorerFocus(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 파일 탐색기를 마지막으로 눌렀으면 body 에 lg-explorer-on 을 붙인다 (CSS: 선택한 문서가 강조색으로 빛난다).
     // 편집창이나 다른 패널을 누르면 뗀다. 메뉴·창(모달)·알림을 누를 때는 그대로 둔다 (우클릭 메뉴 등).
     // 파일을 누르면 Obsidian 이 편집창을 활성 칸으로 바꾸므로 활성 칸(.mod-active)이 아니라 마지막으로 누른 곳을 본다
@@ -150,7 +180,10 @@ export const eventsMethods = {
       doc.body.classList.remove("lg-explorer-on");
       doc.querySelectorAll(".lg-split-on").forEach((s) => s.classList.remove("lg-split-on"));
     });
+  },
 
+  // 스크롤: 탭 줄 접기, 메뉴 밖 휠로 메뉴 닫기, 스크롤하는 동안만 스크롤바
+  attachScrollWatch(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 편집창 스크롤로 탭 줄 접기·펴기 (데스크톱·태블릿)
     if (!Platform.isPhone) this.registerDomEvent(doc, "scroll", (e) => this.onMiniScroll(e.target), { capture: true, passive: true });
 
@@ -163,13 +196,41 @@ export const eventsMethods = {
         "wheel",
         (e) => {
           const t = e.target;
-          if (isEl(t) && t.closest(".menu")) return;
+          // 메뉴에서 연 고르기 창(Bases 그룹 기준·정렬의 속성 고르기 등, .suggestion-container)도 메뉴 안으로 본다:
+          // 그 안에서 휠을 굴리면 메뉴를 닫아 목록이 스크롤되지 않았다 (사용자 지적)
+          if (isEl(t) && t.closest(".menu, .suggestion-container")) return;
           if (doc.body.querySelector(":scope > .menu:not(.lg-menu-ghost)"))
             doc.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", keyCode: 27, bubbles: true, cancelable: true }));
         },
         { capture: true, passive: true }
       );
+    // 스크롤하는 동안만 스크롤바를 보인다
+    this.registerDomEvent(
+      doc,
+      "scroll",
+      (e) => {
+        const t = e.target;
+        if (!isEl(t)) return;
+        t.lgScrollAt = win.performance.now();
+        if (t.lgScrollTimer) return;
+        t.classList.add("lg-scrolling");
+        const check = () => {
+          const left = 900 - (win.performance.now() - t.lgScrollAt);
+          if (left > 0) {
+            t.lgScrollTimer = win.setTimeout(check, left);
+          } else {
+            t.lgScrollTimer = null;
+            t.classList.remove("lg-scrolling");
+          }
+        };
+        t.lgScrollTimer = win.setTimeout(check, 900);
+      },
+      { capture: true, passive: true }
+    );
+  },
 
+  // 상태 표시줄 높이를 body 에 알린다
+  attachStatusHeight(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 상태 표시줄(오른쪽 아래에 떠 있는 동기화·백링크·글자 수 알약)이 창 아래에서 차지하는 높이를 body 에 알린다
     // (CSS: --lg-status-h, 오른쪽 패널의 그래프 설정 창이 그 밑으로 내려가지 않게). 비어 있으면 0
     if (!Platform.isMobile) {
@@ -187,7 +248,10 @@ export const eventsMethods = {
         syncStatus();
       }
     }
+  },
 
+  // 창 제어 알약 호버
+  attachWcHover(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 창 제어 알약 위에 커서가 있는 동안 body 에 lg-wc-hover 를 붙인다 (밑에 겹친 오른쪽 패널 토글을 꺼 두는 데 쓴다).
     // 알약에서 벗어난 뒤 0.15초 늦게 뗀다: 호버가 잠깐 끊겨도 밑 버튼이 커서를 가로채지 못하게 하는 여유다
     let wcTimer = 0;
@@ -207,7 +271,10 @@ export const eventsMethods = {
         wcTimer = win.setTimeout(() => this.wcRefract(doc, false), 160);
       }, 150);
     }, { passive: true });
+  },
 
+  // 호버 유리 자석
+  attachMagnet(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 호버 유리가 커서 쪽으로 끌려가게: 요소 중심에서 커서까지의 거리 일부를 넘겨준다.
     // 실제 움직임은 테마의 튕기는 곡선(transition)이 맡는다
     let magnetEl: HTMLElement | null = null;
@@ -279,8 +346,10 @@ export const eventsMethods = {
           const away = r.near && (Math.abs(rx) > 1 || Math.abs(ry) > 1);
           const nx = away ? 0 : Math.max(-1, Math.min(1, rx));
           const ny = away ? 0 : Math.max(-1, Math.min(1, ry));
-          const mx = nx * Math.min(7, r.width * 0.12);
-          const my = ny * Math.min(4, r.height * 0.14);
+          // 컴팩트 모드면 끌리는 거리를 MAGNET_COMPACT 배로 줄인다 (사용자 요청: 없애지 말고 덜 움직이게)
+          const k = this.reduceMotion() ? MAGNET_COMPACT : 1;
+          const mx = nx * Math.min(7, r.width * 0.12) * k;
+          const my = ny * Math.min(4, r.height * 0.14) * k;
           el.style.setProperty("--lg-mx", `${mx.toFixed(1)}px`);
           el.style.setProperty("--lg-my", `${my.toFixed(1)}px`);
         });
@@ -288,252 +357,10 @@ export const eventsMethods = {
       { passive: true }
     );
     this.register(() => resetMagnet(magnetEl));
+  },
 
-    // 스크롤하는 동안만 스크롤바를 보인다
-    this.registerDomEvent(
-      doc,
-      "scroll",
-      (e) => {
-        const t = e.target;
-        if (!isEl(t)) return;
-        t.lgScrollAt = win.performance.now();
-        if (t.lgScrollTimer) return;
-        t.classList.add("lg-scrolling");
-        const check = () => {
-          const left = 900 - (win.performance.now() - t.lgScrollAt);
-          if (left > 0) {
-            t.lgScrollTimer = win.setTimeout(check, left);
-          } else {
-            t.lgScrollTimer = null;
-            t.classList.remove("lg-scrolling");
-          }
-        };
-        t.lgScrollTimer = win.setTimeout(check, 900);
-      },
-      { capture: true, passive: true }
-    );
-
-    // 클릭 효과 (누를 때만)
-    const pressFx =
-      (e: PointerEvent) => {
-        if (e.button !== 0 || !isEl(e.target)) return;
-        // 메뉴 항목: 메뉴 판 안에서 누른 자리부터 알약 안 버튼과 같은 흰 빛이 퍼진다 (사용자 요청).
-        // 누르는 순간 이미 반쯤 퍼져 있고(MENU_RIPPLE_FROM), 다 퍼지면 메뉴 판 전체를 덮는다(누른 자리에서 가장 먼 모서리까지)
-        const menuItem = (e.target as HTMLElement).closest<HTMLElement>(".menu .menu-item:not(.is-disabled):not(.is-label)");
-        if (menuItem) {
-          const menu = menuItem.closest<HTMLElement>(".menu");
-          const m = menu.getBoundingClientRect();
-          const far = Math.hypot(Math.max(e.clientX - m.left, m.right - e.clientX), Math.max(e.clientY - m.top, m.bottom - e.clientY));
-          // 흰 빛은 반지름의 80% 에서 투명해지므로 그만큼 크게
-          return this.pressRipple(menu, e, (far * 2) / 0.8, "lg-ripple-menu", true, MENU_RIPPLE_FROM);
-        }
-        const kbAdd = (e.target as HTMLElement).closest<HTMLElement>(".kanban-plugin__new-item-button");
-        if (kbAdd) return this.pressKanbanAdd(kbAdd);
-        // 칸반 목록 추가 창의 버튼(목록 추가·취소): 다른 알약처럼 커지며 하얘졌다 돌아온다 (사용자 요청)
-        const laneBtn = (e.target as HTMLElement).closest<HTMLElement>(".kanban-plugin__lane-input-actions button");
-        if (laneBtn) return this.pressPill(laneBtn);
-        if (Platform.isMobile && this.pressMobile(e.target)) return;
-        // 앱 안 설정·커뮤니티 창의 닫기(X): 유리를 ::after 가 아니라 요소 자체에 그려(테마), 요소를 통째로 단독 버튼과 같은 값으로 키우고 하얗게 한다
-        const modalX = (e.target as HTMLElement).closest<HTMLElement>("body:not(.is-popout-modal) .modal:is(.mod-settings, .mod-community-modal) > :is(.modal-close-button, .modal-header-button)");
-        if (modalX) return this.pressPopSelf(modalX);
-        // 넓어진 패널 검색 버튼 안의 검색 칸: 효과 없이 입력만
-        if ((e.target as HTMLElement).closest<HTMLElement>(".lg-nav-find .search-input-container")) return;
-        // 탭 줄 오른쪽 묶음(.lg-tab-tools) 안의 +·목록·읽기 모드는 단독 버튼이 아니라 알약 안 버튼이다
-        const pop0 = (e.target as HTMLElement).closest<HTMLElement>(PRESS_POP);
-        const pop = pop0 && !pop0.closest<HTMLElement>(".lg-tab-tools") ? pop0 : null;
-        // 칸반 검색 버튼: 흰 빛이 열리는(닫히는) 쪽으로 퍼진다
-        const kbSearch = (e.target as HTMLElement).closest<HTMLElement>(".lg-kb-search-btn, .lg-nav-find");
-        if (kbSearch) return this.pressKbSearch(kbSearch);
-        if (pop) {
-          const anims = this.pressPop(pop);
-          if (pop.matches(PANEL_TOGGLES)) this.handoffPop(pop, anims);
-          return;
-        }
-        // 검색 탭 검색창: 처음 누를 때(아직 입력 중이 아닐 때) 알약이 커지며 하얘졌다 돌아온다
-        const field = (e.target as HTMLElement).closest<HTMLElement>('.workspace-leaf-content[data-type="search"] .search-input-container');
-        if (field) {
-          const input = field.querySelector("input");
-          if (input && doc.activeElement !== input) this.pressField(field, e);
-          return;
-        }
-        const sc = (e.target as HTMLElement).closest<HTMLElement>(PRESS_SCALE);
-        if (sc) this.pressScale(sc);
-        const rip = (e.target as HTMLElement).closest<HTMLElement>(PRESS_RIPPLE);
-        if (rip) this.pressRipple(rip, e);
-        // 패널 탭: 효과 없음 모드에서는 알약 안 버튼과 같은 흰 빛이 탭 가운데에서 퍼진다 (사용자 요청, 렌즈 모드는 렌즈가 대신한다)
-        else if (this.tabPlain()) {
-          const tab = (e.target as HTMLElement).closest<HTMLElement>(":is(.mod-left-split, .mod-right-split) .workspace-tab-header-container .workspace-tab-header");
-          // 목록 방식 패널의 탭은 흰 빛이 없다: 알약이 목록 전체라 패널 투명(심플로 보임)에서 목록만 한 흰 알약이 퍼졌다 (사용자 지적)
-          if (tab && !tab.closest(".lg-tab-list")) {
-            // 누르는 순간 이미 탭 버튼 크기만큼 퍼져 있다 (사용자 요청, 메뉴처럼). 다 퍼진 크기는 알약 높이 × TAB_RIPPLE_K
-            const pill = tab.closest<HTMLElement>(PRESS_PILL);
-            const d = (pill ? pill.offsetHeight : tab.offsetHeight) * TAB_RIPPLE_K;
-            const from = Math.min(1, Math.max(tab.offsetWidth, tab.offsetHeight) / d);
-            this.pressRipple(tab, e, d, "lg-ripple-tab", true, from.toFixed(3));
-          }
-        }
-      };
-    // 누르고 있는 동안 누름 효과를 가장 커지고 하얀 자리에서 멈춰 두고, 뗄 때 이어서 돌아오게 한다 (사용자 요청: 버튼은 떼야 동작하는데
-    // 효과는 누르는 순간 혼자 끝났다). 누름 효과(커졌다 하얘지는 것, 0.34~0.46 구간이 가장 큰 자리)와 그동안 호버 유리를 옅게 하는 것(0.2~0.55)을
-    // 키프레임으로 알아보고, 진행이 0.4 를 지나면 멈춘다. 떼거나 취소되면(스크롤 시작 등) 다시 돌린다. 놓친 떼기에 대비해 5초 뒤에는 저절로 푼다
-    let holding = false;
-    let held: Animation[] = [];
-    let slowed: Animation[] = [];
-    let heldPlay: Animation[] = [];
-    let holdRaf = 0;
-    let holdTimer = 0;
-    const hasOffsets = (a: Animation, x: number, y: number) => {
-      const ef = a.effect as KeyframeEffect | null;
-      const k = ef && typeof ef.getKeyframes === "function" ? ef.getKeyframes() : [];
-      return k.some((f) => Math.abs((f.offset ?? -1) - x) < 0.001) && k.some((f) => Math.abs((f.offset ?? -1) - y) < 0.001);
-    };
-    const holdScan = () => {
-      if (!holding) return;
-      for (const a of doc.getAnimations()) {
-        if (a.playState !== "running" || held.includes(a) || heldPlay.includes(a)) continue;
-        // 가장 큰 자리(키프레임 구간)는 진행도(곡선을 거친 값) 기준이다. 시간 기준으로 멈추면 곡선 때문에 이미 그 자리를 지나 조금 줄어든 채 멈췄고,
-        // 뗄 때 가장 큰 모습부터 다시 줄어들어 '살짝 커졌다 줄어드는' 단계가 생겼다 (사용자 지적, 측정: 알약 폭 74.8 → 72.9 에서 멈춤)
-        // 메뉴 흰 빛: 가장 밝은 채로 다 나타난 자리(RIPPLE_HOLD)에서 멈추고, 떼면 남은 흐려짐을 이어 돈다 (사용자 요청)
-        const tgt = (a.effect as KeyframeEffect | null)?.target;
-        const menuRip = !!tgt && !!tgt.parentElement?.classList.contains("lg-ripple-menu");
-        const span = menuRip ? [RIPPLE_HOLD, RIPPLE_HOLD] : hasOffsets(a, 0.34, 0.46) ? [0.34, 0.46] : hasOffsets(a, 0.2, 0.55) ? [0.2, 0.55] : null;
-        if (!span || !a.effect) continue;
-        const prog = () => Number(a.effect.getComputedTiming().progress) || 0;
-        const p = prog();
-        // 가장 큰 자리에 가까워지면 재생 속도를 차츰 늦춰 부드럽게 멈춘다 (사용자 요청: 최대치에서 뚝 멈췄다). 짧은 클릭은 이 구간 전에 떼어 그대로다
-        if (p < span[0]) {
-          if (p >= span[0] - HOLD_EASE_SPAN) {
-            a.updatePlaybackRate(Math.max(0.15, (span[0] - p) / HOLD_EASE_SPAN));
-            if (!slowed.includes(a)) slowed.push(a);
-          }
-          continue;
-        }
-        // 구간 한가운데 진행도가 되는 시각을 찾아 거기서 멈춘다 (한 프레임에 구간을 건너뛰었어도 되돌려 맞춘다)
-        a.pause();
-        const goal = (span[0] + span[1]) / 2;
-        let lo = 0, hi = Number(a.currentTime) || 0;
-        for (let i = 0; i < 14; i++) {
-          const mid = (lo + hi) / 2;
-          a.currentTime = mid;
-          if (prog() < goal) lo = mid;
-          else hi = mid;
-        }
-        a.currentTime = hi;
-        (menuRip ? heldPlay : held).push(a);
-      }
-      holdRaf = win.requestAnimationFrame(holdScan);
-    };
-    const holdRelease = () => {
-      holding = false;
-      win.cancelAnimationFrame(holdRaf);
-      win.clearTimeout(holdTimer);
-      // 꾹 눌렀다 뗄 때는 남은 효과(가장 큰 자리를 지나 관성처럼 줄어드는 부분)를 이어 돌리지 않고, 멈춘 모습에서 원래대로 곧장 돌아오게 한다
-      // (사용자 요청: 짧은 클릭의 관성은 그대로, 꾹 눌렀을 때만 뺀다)
-      for (const a of held) {
-        try {
-          const ef = a.effect as KeyframeEffect | null;
-          const target = ef && ef.target;
-          if (!ef || !target || !target.isConnected) {
-            a.cancel();
-            continue;
-          }
-          const kf = ef.getKeyframes();
-          const peak = kf.find((f) => Math.abs((f.offset ?? -1) - 0.34) < 0.001) || kf.find((f) => Math.abs((f.offset ?? -1) - 0.2) < 0.001);
-          const from: Keyframe = {};
-          if (peak) for (const [k, v] of Object.entries(peak)) if (!["offset", "computedOffset", "easing", "composite"].includes(k)) from[k] = v;
-          a.cancel();
-          target.animate([{ ...from, offset: 0 }], { duration: HOLD_RETURN_MS, easing: EASE.press, pseudoElement: ef.pseudoElement || undefined });
-        } catch {
-          // 이미 떨어진 요소의 애니메이션
-        }
-      }
-      held = [];
-      for (const a of heldPlay) {
-        try {
-          a.updatePlaybackRate(1);
-          a.play();
-        } catch {
-          // 이미 떨어진 요소의 애니메이션
-        }
-      }
-      heldPlay = [];
-      // 늦추던 중에 뗀 것(가장 큰 자리 전)은 원래 속도로 이어 돈다
-      for (const a of slowed) {
-        try {
-          if (a.playState !== "idle") a.updatePlaybackRate(1);
-        } catch {
-          // 이미 떨어진 요소의 애니메이션
-        }
-      }
-      slowed = [];
-    };
-    this.registerDomEvent(doc, "pointerdown", (e) => {
-      if (e.button !== 0) return;
-      holdRelease();
-      holding = true;
-      holdRaf = win.requestAnimationFrame(holdScan);
-      holdTimer = win.setTimeout(holdRelease, 5000);
-    }, { capture: true });
-    // 메뉴를 누르고 있는 동안 커서를 옮기면 흰 빛도 따라온다 (사용자 요청). 빛은 메뉴 판 기준 자리(left·top)에 그려진다
-    const followMenu = (x: number, y: number) => {
-      doc.querySelectorAll<HTMLElement>(".lg-ripple-menu > .lg-ripple-dot").forEach((dot) => {
-        const host = dot.parentElement && dot.parentElement.parentElement;
-        if (!host) return;
-        const r = host.getBoundingClientRect();
-        dot.style.left = `${x - r.left}px`;
-        dot.style.top = `${y - r.top}px`;
-      });
-    };
-    // 모바일: 손가락이 움직이면 브라우저가 메뉴 스크롤로 가져가 포인터가 취소(pointercancel)되고 포인터 이동도 끊긴다.
-    // 메뉴 빛이 있는 동안은 취소로 놓지 않고 터치 이벤트로 따라가다 손을 뗄 때 놓는다 (사용자 요청: 모바일에서도 누른 채 옮기기)
-    if (Platform.isMobile) {
-      this.registerDomEvent(doc, "touchmove", (e: TouchEvent) => {
-        if (holding && e.touches[0]) followMenu(e.touches[0].clientX, e.touches[0].clientY);
-      }, { capture: true, passive: true });
-      this.registerDomEvent(doc, "touchend", holdRelease, { capture: true, passive: true });
-      this.registerDomEvent(doc, "touchcancel", holdRelease, { capture: true, passive: true });
-    }
-    this.registerDomEvent(doc, "pointermove", (e: PointerEvent) => {
-      if (!holding) return;
-      followMenu(e.clientX, e.clientY);
-    }, { capture: true, passive: true });
-    this.registerDomEvent(doc, "pointerup", holdRelease, { capture: true });
-    this.registerDomEvent(doc, "pointercancel", (e: PointerEvent) => {
-      if (Platform.isMobile && e.pointerType === "touch" && doc.querySelector(".lg-ripple-menu")) return;
-      holdRelease();
-    }, { capture: true });
-    this.register(holdRelease);
-
-    if (!Platform.isMobile) {
-      this.registerDomEvent(doc, "pointerdown", pressFx, { capture: true });
-    } else {
-      // 모바일: 스크롤하려고 손가락을 대기만 해도 누름 효과가 나왔다 (검토 지적). 효과를 PRESS_DELAY_MS 늦게 시작하고,
-      // 그 사이 손가락이 PRESS_SLOP px 넘게 움직이거나 터치가 취소(pointercancel, 스크롤 시작)되면 취소한다. 그 전에 떼면 뗄 때 바로 시작한다
-      let pend: { e: PointerEvent; x: number; y: number; t: number } | null = null;
-      const drop = () => {
-        if (!pend) return;
-        win.clearTimeout(pend.t);
-        pend = null;
-      };
-      const fire = () => {
-        if (!pend) return;
-        const ev = pend.e;
-        drop();
-        pressFx(ev);
-      };
-      this.registerDomEvent(doc, "pointerdown", (e) => {
-        drop();
-        if (e.button !== 0 || !isEl(e.target)) return;
-        pend = { e, x: e.clientX, y: e.clientY, t: win.setTimeout(fire, PRESS_DELAY_MS) };
-      }, { capture: true, passive: true });
-      this.registerDomEvent(doc, "pointermove", (e) => {
-        if (pend && Math.hypot(e.clientX - pend.x, e.clientY - pend.y) > PRESS_SLOP) drop();
-      }, { capture: true, passive: true });
-      this.registerDomEvent(doc, "pointercancel", drop, { capture: true, passive: true });
-      this.registerDomEvent(doc, "pointerup", fire, { capture: true, passive: true });
-      this.register(drop);
-    }
-
+  // 칸반: 목록 접기·펴기, 날짜 고르기가 가리킬 곳
+  attachKanbanEvents(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 칸반 목록 접기·펴기 (테마 Kanban 연동)
     this.registerDomEvent(
       doc,
@@ -545,171 +372,53 @@ export const eventsMethods = {
       },
       { capture: true }
     );
-
-    // 메뉴(··· · 보관함 전환 · 우클릭): 누른 곳에서 커지며 나타나고, 닫힐 때는 그 자리로 줄며 사라진다
-    let lastPress: PressInfo | null = null;
+    // 칸반 날짜 고르기가 가리킬 곳: 카드의 ⋮ 버튼이나 날짜를 누르면 기억해 둔다
     this.registerDomEvent(
       doc,
       "pointerdown",
       (e) => {
-        lastPress = { x: e.clientX, y: e.clientY, t: win.performance.now(), target: e.target };
+        const t = e.target;
+        if (!isEl(t)) return;
+        const a = t.closest<HTMLElement>(".kanban-plugin__item-postfix-button, .kanban-plugin__item-metadata-date, .kanban-plugin__item-metadata-time");
+        if (a) this.lastKbAnchor = { el: a, t: win.performance.now() };
       },
       { capture: true, passive: true }
     );
-    // 드롭다운(select.dropdown): 운영체제 목록 대신 Obsidian 메뉴로 열어 보관함 전환 메뉴처럼 드롭다운에서 넓어지게 한다 (사용자 요청).
-    // 모바일(사용자 요청): 운영체제 고르기 화면은 손을 뗄 때(click) 뜨므로, 움직이지 않고 뗀 탭이면 touchend 를 막아 click 이 생기지 않게 하고
-    // 그때 메뉴를 연다. 끌어서 스크롤한 것은 그대로 둔다. 휴대폰은 Obsidian 메뉴가 아래에서 올라오는 시트로 뜬다
-    const openSelect = (sel: HTMLSelectElement) => {
-      lastPress = { x: 0, y: 0, t: win.performance.now(), target: sel };
-      this.openDropdownMenu(sel);
-    };
-    // 누를 때(mousedown)는 운영체제 목록만 막고, 메뉴는 뗀 뒤(click) 연다: 누를 때 열면 떼는 순간 메뉴 바깥 누름으로 보고 닫혔다 (사용자 지적).
-    // 메뉴가 열린 채 드롭다운을 다시 누르면 그 누름에 메뉴가 닫히므로, 이어지는 click 에 다시 열지 않는다
-    this.registerDomEvent(
-      doc,
-      "mousedown",
-      (e) => {
-        if (Platform.isMobile || e.button !== 0 || !isEl(e.target)) return;
-        const sel = (e.target as HTMLElement).closest<HTMLSelectElement>("select.dropdown");
-        if (!sel || sel.disabled) return;
-        e.preventDefault();
-        sel.lgSkipClick = sel.classList.contains("has-active-menu");
-      },
-      { capture: true }
-    );
-    this.registerDomEvent(
-      doc,
-      "click",
-      (e) => {
-        if (Platform.isMobile || e.button !== 0 || !isEl(e.target)) return;
-        const sel = (e.target as HTMLElement).closest<HTMLSelectElement>("select.dropdown");
-        if (!sel || sel.disabled) return;
-        e.preventDefault();
-        if (sel.lgSkipClick || sel.classList.contains("has-active-menu")) {
-          sel.lgSkipClick = false;
-          return;
-        }
-        win.setTimeout(() => openSelect(sel), 0);
-      },
-      { capture: true }
-    );
-    if (Platform.isMobile) {
-      let touch: { sel: HTMLSelectElement; x: number; y: number } | null = null;
+  },
+
+  // 캔버스: 카드 추가 버튼 옮기기, 도구 막대 화살표
+  attachCanvasEvents(this: GlassShelfPlugin, doc: Document, win: typeof window) {
+    // 캔버스 카드 추가 버튼을 오른쪽 묶음으로: 캔버스가 열리거나 화면이 다시 짜일 때
+    if (!Platform.isPhone) {
+      const cardsAll = () => this.app.workspace.getLeavesOfType("canvas").forEach((l) => this.canvasCards(l.view.containerEl));
+      this.registerEvent(this.app.workspace.on("layout-change", cardsAll));
+      this.registerEvent(this.app.workspace.on("active-leaf-change", () => win.requestAnimationFrame(cardsAll)));
+      this.app.workspace.onLayoutReady(cardsAll);
+      this.register(() =>
+        doc.querySelectorAll<HTMLElement>(".lg-canvas-cards").forEach((c) => {
+          c.classList.remove("lg-canvas-cards");
+          if (c.lgHome && c.lgHome.isConnected) c.lgHome.appendChild(c);
+        })
+      );
+    }
+    // 캔버스 도구 막대·색 고르기: 캔버스 안에서 누름이 끝나면(카드 고름, 색상 버튼) 다음 그림에서 화살표를 붙인다
+    if (!Platform.isPhone) {
       this.registerDomEvent(
         doc,
-        "touchstart",
+        "pointerup",
         (e) => {
-          const t = e.touches[0];
-          const sel = isEl(e.target) && (e.target as HTMLElement).closest<HTMLSelectElement>("select.dropdown");
-          touch = sel && !sel.disabled && e.touches.length === 1 ? { sel, x: t.clientX, y: t.clientY } : null;
+          const t = e.target;
+          const wrap = isEl(t) ? t.closest<HTMLElement>(".canvas-wrapper") : null;
+          if (!wrap) return;
+          win.requestAnimationFrame(() => win.requestAnimationFrame(() => this.canvasArrows(wrap)));
         },
         { capture: true, passive: true }
       );
-      this.registerDomEvent(
-        doc,
-        "touchend",
-        (e) => {
-          const p = touch;
-          touch = null;
-          const t = e.changedTouches[0];
-          if (!p || !t || Math.hypot(t.clientX - p.x, t.clientY - p.y) > 10) return;
-          if (!isEl(e.target) || (e.target as HTMLElement).closest<HTMLSelectElement>("select.dropdown") !== p.sel) return;
-          e.preventDefault();
-          if (!p.sel.classList.contains("has-active-menu")) openSelect(p.sel);
-        },
-        { capture: true }
-      );
-      // 그래도 click 이 오면(마우스·펜 등) 운영체제 화면 대신 메뉴로
-      this.registerDomEvent(
-        doc,
-        "click",
-        (e) => {
-          const sel = isEl(e.target) && (e.target as HTMLElement).closest<HTMLSelectElement>("select.dropdown");
-          if (!sel || sel.disabled) return;
-          e.preventDefault();
-          if (!sel.classList.contains("has-active-menu")) openSelect(sel);
-        },
-        { capture: true }
-      );
     }
-    this.registerDomEvent(
-      doc,
-      "keydown",
-      (e) => {
-        if (Platform.isMobile || !isEl(e.target) || !e.target.matches("select.dropdown")) return;
-        const sel = e.target as HTMLSelectElement;
-        if (sel.disabled || sel.classList.contains("has-active-menu")) return;
-        if (e.key === " " || e.key === "Enter" || (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp"))) {
-          e.preventDefault();
-          openSelect(sel);
-        }
-      },
-      { capture: true }
-    );
-    // 태블릿의 길게 누르기(우클릭 메뉴)는 누른 지 한참 뒤에 메뉴가 떠 누른 기록이 오래된다. 메뉴를 부른 순간을 누른 때로 다시 적는다
-    this.registerDomEvent(
-      doc,
-      "contextmenu",
-      (e) => {
-        lastPress = { x: e.clientX, y: e.clientY, t: win.performance.now(), target: e.target };
-      },
-      { capture: true, passive: true }
-    );
-    const isMenu = (n: Node): n is HTMLElement => isEl(n) && n.classList.contains("menu") && !n.classList.contains("lg-menu-ghost");
-    const menuObs = new win.MutationObserver((recs) => {
-      for (const r of recs) {
-        for (const n of r.addedNodes) {
-          // 휴대폰 메뉴는 아래에서 올라오는 시트라 데스크톱 팝업 애니메이션을 걸지 않는다 (태블릿은 팝업이라 건다)
-          if (isMenu(n)) {
-            // 모바일: 길게 누르기로 부른 메뉴는 Obsidian 이 열린 메뉴를 닫지 않아(데스크톱은 우클릭·누름이 닫는다) 겹쳐 쌓였다.
-            // 방금 누른 곳이 메뉴 안이 아니면(하위 메뉴가 아니면) 새 메뉴 자리를 누른 것처럼 알려 다른 메뉴를 닫는다.
-            // 새 메뉴는 아직 준비 전(_loaded 전)이라 이 알림에 닫히지 않는다
-            const pt = lastPress && lastPress.target;
-            if (Platform.isMobile && !(isEl(pt) && pt.closest<HTMLElement>(".menu")) &&
-              els(doc.querySelectorAll<HTMLElement>(".menu")).some((m) => m !== n && !m.classList.contains("lg-menu-ghost"))) {
-              this.tellMenus(n, "click");
-            }
-            if (!Platform.isPhone) this.setupMenu(n, lastPress);
-          }
-          else if (isEl(n) && n.classList.contains("mod-search-suggestion")) this.attachSearchSuggest(n, doc);
-          else if (isEl(n) && n.classList.contains("suggestion-container")) this.attachWebSuggest(n, doc);
-          else if (isEl(n) && n.classList.contains("modal-container")) this.modalRefract(doc);
-        }
-        for (const n of r.removedNodes) if (isMenu(n) && !Platform.isPhone) this.closeMenu(n, doc);
-      }
-      if (Platform.isPhone) phonePause();
-    });
-    menuObs.observe(doc.body, { childList: true });
-    this.observers.push(menuObs);
+  },
 
-    // 휴대폰: 메뉴 시트가 열려 있거나(올라오고 내려가는 동안 포함) 서랍이 움직이는 동안(열고 닫는 전환, 손가락으로 끄는 동안) 굴절을 멈춘다 (Refractor.setPaused).
-    // 시트·서랍이 움직이면 그 위아래에 떠 있는 유리(뷰 헤더 버튼·하단 막대)의 뒤가 바뀌어 굴절 필터가 매 프레임 다시 계산돼 끊겼다
-    // (사용자 지적, 휴대폰 녹화 측정: 서랍 열 때 프레임 간격 평균 약 21~27ms → 굴절을 끄면 약 12~16ms).
-    // 서랍이 움직이는 동안만 Obsidian 이 서랍에 인라인 transform 을 둔다(다 열리면 걷는다). 열려 있는 동안 내내 멈추면 서랍 안 유리(보기 전환 알약)의 굴절이 늘 빠졌다
-    const phonePause = () => {
-      const menu = els(doc.querySelectorAll<HTMLElement>(".menu")).some((m) => !m.classList.contains("lg-menu-ghost"));
-      const drawer = els(doc.querySelectorAll<HTMLElement>(".workspace-drawer")).some((d) => d.style.display !== "none" && !!d.style.transform);
-      this.refractor.setPaused(menu || drawer);
-    };
-    // 서랍은 화면 배치가 준비된 뒤에 생긴다: 플러그인이 켜질 때(attachDoc)는 아직 없어 감시가 하나도 붙지 않았다
-    // (검토 측정: 서랍에서는 멈춤이 안 걸리고, 메뉴를 한 번 연 뒤로는 굴절이 꺼진 채 남았다). 배치가 준비되거나 바뀔 때마다
-    // 새 서랍에 감시를 붙이고 상태를 다시 판정한다
-    if (Platform.isPhone && doc === document) {
-      const drawerObs = new win.MutationObserver(phonePause);
-      const seen = new WeakSet<HTMLElement>();
-      const hookDrawers = () => {
-        els(doc.querySelectorAll<HTMLElement>(".workspace-drawer")).forEach((d) => {
-          if (seen.has(d)) return;
-          seen.add(d);
-          drawerObs.observe(d, { attributes: true, attributeFilter: ["style"] });
-        });
-        phonePause();
-      };
-      this.observers.push(drawerObs);
-      this.app.workspace.onLayoutReady(hookDrawers);
-      this.registerEvent(this.app.workspace.on("layout-change", hookDrawers));
-    }
-
+  // 편집창 탭을 닫은 뒤 탭 폭 고정 풀기
+  attachTabUnlock(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 편집창 탭을 마우스로 닫으면 Obsidian 은 커서가 탭 줄을 벗어날 때까지 탭 폭을 고정해 둔다(lockTabWidths).
     // 사용자 요청으로 닫은 뒤 바로 풀리게, 닫는 전환(240ms)이 끝나면 탭 줄에 mouseleave 를 보내 Obsidian 이 스스로 풀게 한다
     const unlockTabs = (e: MouseEvent) => {
@@ -726,7 +435,10 @@ export const eventsMethods = {
     // 캡처 단계로 듣는다: Obsidian 의 닫기 버튼 처리가 이벤트 전파를 막으면 문서까지 올라오지 않는다
     this.registerDomEvent(doc, "click", unlockTabs, { capture: true, passive: true });
     this.registerDomEvent(doc, "auxclick", unlockTabs, { capture: true, passive: true });
+  },
 
+  // 패널 머리 줄 검색창 켜고 끄는 움직임
+  attachHeadSearch(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 패널 머리 줄 검색창(개요·북마크 등)을 켜고 끌 때 (사용자 요청). 버튼을 누른 때만 움직인다(패널 탭 전환·앱 시작 때는 그대로).
     // 움직임은 편집창·패널 버튼이 나타나고 사라지는 것과 같은 결: 켜면 0.4배에서 살짝 넘치며 커지고(EASE.pop), 끄면 0.4배로 줄며 흐려진다(EASE.exit).
     // Obsidian 은 검색창을 바로 보이고 숨기므로, 그 아래 목록은 바뀌기 전 자리에서 새 자리로 미끄러지게 하고(FLIP),
@@ -789,7 +501,10 @@ export const eventsMethods = {
       },
       { capture: true, passive: true }
     );
+  },
 
+  // 그래프 설정 창 열기·닫기
+  attachGraphEvents(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 그래프 설정 창 열기·닫기: Obsidian 이 바꾸기 전에(캡처 단계) 지금 모습을 떠 둔다.
     // 창이 퍼져 나오는 애니메이션은 테마(CSS)가 맡는다
     this.registerDomEvent(
@@ -804,7 +519,10 @@ export const eventsMethods = {
       },
       { capture: true }
     );
+  },
 
+  // 토글·슬라이더
+  attachToggleSlider(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 토글: Obsidian 토글은 클릭 시 change, 키보드(스페이스·엔터) 시 keydown 으로 바뀐다.
     // 둘 다 문서까지 올라왔을 때는 이미 켜짐 상태가 바뀐 뒤라, 그 자리에서 렌즈 애니메이션을 건다.
     // 페이지를 열 때 값이 채워지는 경우는 이벤트가 없어 애니메이션도 없다
@@ -885,7 +603,15 @@ export const eventsMethods = {
       if (e.animationName === "lg-sl-born") syncSlider(e.target as HTMLElement);
     });
     for (const el of doc.querySelectorAll<HTMLElement>('input[type="range"]')) syncSlider(el);
+    this.registerDomEvent(doc, "keydown", (e) => {
+      if ((e.key === " " || e.key === "Enter") && isEl(e.target) && e.target.classList.contains("checkbox-container")) {
+        onToggle(e.target);
+      }
+    });
+  },
 
+  // 패널 탭을 누를 때 탭 줄 스크롤 맞추기
+  attachPanelTabScroll(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 패널 탭을 누르면 Obsidian 이 고른 탭을 탭 줄 맨 앞으로 스크롤하고, ··· 가 접히거나 펴지며 알약 폭이 바뀌어도
     // 스크롤이 밀린다. 누른 탭이 다 보이던 중이면 화면에서 그 자리에 그대로 두고,
     // 반쯤 가려져 있었으면 다 보이는 만큼만 스크롤한다. ··· 전환이 끝날 때까지(0.4초) 매 프레임 맞춘다
@@ -920,7 +646,10 @@ export const eventsMethods = {
       },
       { capture: true, passive: true }
     );
+  },
 
+  // 할 일 체크박스 애니메이션
+  attachTaskEvents(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 할 일 체크박스: 켜질 때·꺼질 때 애니메이션. 편집기·읽기 보기가 체크박스를 새로 그려 바꿔 끼우기도 하므로
     // 잠깐(0.6초) 누른 자리의 체크박스를 지켜보다가 새것이 나타나면 거기서 이어서 재생한다
     let taskMo: MutationObserver | null = null;
@@ -1000,12 +729,10 @@ export const eventsMethods = {
       },
       true
     );
-    this.registerDomEvent(doc, "keydown", (e) => {
-      if ((e.key === " " || e.key === "Enter") && isEl(e.target) && e.target.classList.contains("checkbox-container")) {
-        onToggle(e.target);
-      }
-    });
+  },
 
+  // 별도 창 제목 위치
+  attachTitleWatch(this: GlassShelfPlugin, doc: Document, win: typeof window) {
     // 별도 창: 창이나 왼쪽 요소의 크기가 바뀔 때만 창 제목 위치를 다시 잰다
     if (doc !== document) {
       const ro = new win.ResizeObserver(() => this.placeTitle(doc));
@@ -1015,4 +742,5 @@ export const eventsMethods = {
       this.register(() => ro.disconnect());
     }
   },
+
 };

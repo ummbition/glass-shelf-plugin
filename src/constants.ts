@@ -1,9 +1,10 @@
 // 호버 유리가 뜨는 요소들 (테마의 '호버 유리' 목록과 같아야 한다)
 // 편집창 탭(제목·X·≡)은 플랫한 하이라이트라 빠진다
 // 호버 유리를 요소(.lg-hover-glass)로 받는 아이콘 버튼 (나머지 호버 유리는 ::before)
-export const HOVER_ICON = ".clickable-icon:not(.lg-tab-menu):not(.workspace-tab-header-inner-close-button), .bases-toolbar .bases-toolbar-item > .text-icon-button, .bases-kanban-column-footer > .text-icon-button";
+export const HOVER_ICON = ".clickable-icon, .mod-root .workspace-tab-header-inner-close-button, .bases-toolbar .bases-toolbar-item > .text-icon-button, .bases-kanban-column-footer > .text-icon-button";
 export const HOVER_GLASS = [
-  ".clickable-icon:not(.lg-tab-menu):not(.workspace-tab-header-inner-close-button)",
+  ".clickable-icon",
+  ".mod-root .workspace-tab-header-inner-close-button",
   ".workspace-drawer-vault-switcher",
   ".bases-toolbar .bases-toolbar-item > .text-icon-button",
   ".bases-kanban-column-footer > .text-icon-button",
@@ -23,6 +24,7 @@ export const PRESS_POP = [
   ".lg-nav-rest > .clickable-icon",
   ".lg-panel-toggle",
   ".lg-tab-mode",
+  ".lg-act-btn",
   ".lg-rib-menu",
   ".workspace-drawer-vault-actions .clickable-icon",
   ".graph-controls.is-close .graph-controls-button",
@@ -36,8 +38,8 @@ export const MORPH_DASH = 30;
 // Bases 툴바에서 메뉴를 여는 버튼들: 보관함 버튼처럼 메뉴 쪽으로 돌진하고 메뉴는 버튼에서 넓어진다 (사용자 요청).
 // 메뉴 자리는 Obsidian 이 정한 대로(버튼 왼쪽 끝, 버튼 아래)
 export const BASES_MENU_BTN = ":is(.bases-toolbar-views-menu, .bases-toolbar-result-count, .bases-toolbar-sort-menu, .bases-toolbar-group-menu, .bases-toolbar-filter-menu, .bases-toolbar-properties-menu) > .text-icon-button";
-// 모바일 누름 효과: 시작을 늦추는 시간(ms)과 스크롤로 보는 손가락 이동 거리(px)
-export const PRESS_DELAY_MS = 90;
+// 모바일 누름 효과: 스크롤로 보는 손가락 이동 거리(px, PRESS_SLOP)와, 스크롤이면 시작한 효과를 거꾸로 되감는 빠르기(배속)
+export const PRESS_ABORT_RATE = 2;
 // 꾹 눌렀다 뗄 때 가장 커진 모습에서 원래대로 돌아오는 시간(ms)
 export const HOLD_RETURN_MS = 260;
 // 꾹 누를 때 가장 큰 자리 앞 이만큼의 진행도 구간에서 재생 속도를 차츰 늦춰 부드럽게 멈춘다
@@ -48,6 +50,8 @@ export const MORPH_OVERSHOOT = 5;
 export const MORPH_NUDGE = 3;
 // 버튼 밑에 여는 메뉴(패널 ···, 편집창 ≡·탭 목록)와 버튼 사이 간격(px)
 export const MENU_DROP = 6;
+// 탭 줄 오른쪽 묶음에 바로 둘 보기 헤더 버튼 최대 수. 넘거나 자리가 모자라면 나머지는 퍼즐 버튼 메뉴로
+export const ACT_MAX = 5;
 
 // 움직임 곡선. 테마의 --lg-ease-* 와 같은 값이다 (WAAPI 는 CSS 변수를 못 읽어 따로 적는다)
 // 넓게 모드 패널 검색: 돋보기 버튼이 넓어질 최대 폭, 그만큼 넓히려면 버튼 줄에 남아야 할 최소 빈 폭 (navSearchSync)
@@ -68,7 +72,7 @@ export const STRIPE_FOLLOW_MS = 400; // 폴더를 열고 닫은 뒤 줄무늬를
 export const DRAG_SCROLL_ZONE = 48; // 끌기 자동 스크롤: 보이는 위·아래 끝에서 이 거리(px) 안이면 스크롤
 export const DRAG_SCROLL_MAX = 14; // 끝에 붙었을 때 한 프레임 스크롤 양(px)
 export const TASK_PRESS_MS = 260; // 할 일 체크박스를 누르면 작아졌다 되돌아오는 시간
-export const MENU_MOVE_MS = 320; // 같은 대상을 다시 우클릭했을 때 메뉴가 새 자리로 옮겨 가는 시간
+export const MENU_MOVE_MS = 240; // 같은 대상을 다시 우클릭했을 때 메뉴가 새 자리로 옮겨 가는 시간
 
 // 패널을 여닫는 토글. 누르면 패널이 접히거나 펼쳐지며 다른 자리의 토글로 바뀐다
 export const PANEL_TOGGLES = ".sidebar-toggle-button .clickable-icon, .lg-panel-toggle";
@@ -127,9 +131,10 @@ export const MOBILE_PRESS_POP = [
   ".mobile-tab-switcher-menu-spacer > .clickable-icon",
 ].join(", ");
 
-// 버튼이 든 알약: 안 버튼(MOBILE_PRESS_BTN)을 누르면 알약이 통째로 커지며 하얘진다. 서랍 보기 전환 줄은 커지기만 (패널 탭과 같다)
-export const MOBILE_PRESS_PILL = ".is-floating-nav .mobile-navbar.mod-raised, .view-header .view-actions.mod-raised, .mobile-toolbar-options-list-container.mod-raised, .workspace-drawer-tab-options-list, .mobile-tab-switcher-menu-button";
-export const MOBILE_PRESS_BTN = ".clickable-icon, button, .mobile-navbar-action, .mobile-toolbar-option, .workspace-tab-header, .mobile-tab-switcher-menu-button";
+// 버튼이 든 알약: 안 버튼(MOBILE_PRESS_BTN)을 누르면 알약이 통째로 커지며 하얘진다. 서랍 보기 전환 줄은 커지기만 (패널 탭과 같다).
+// 태블릿 캔버스 도구 막대·조작 버튼 묶음·카드 추가 묶음도 (사용자 요청). 컴팩트 모드면 다른 묶음처럼 효과 없음
+export const MOBILE_PRESS_PILL = ".is-floating-nav .mobile-navbar.mod-raised, .view-header .view-actions.mod-raised, .mobile-toolbar-options-list-container.mod-raised, .workspace-drawer-tab-options-list, .mobile-tab-switcher-menu-button, body.is-tablet .canvas-menu, body.is-tablet .canvas-controls > .canvas-control-group, body.is-tablet .canvas-controls > .canvas-card-menu";
+export const MOBILE_PRESS_BTN = ".clickable-icon, button, .mobile-navbar-action, .mobile-toolbar-option, .workspace-tab-header, .mobile-tab-switcher-menu-button, .canvas-control-item, .canvas-card-menu-button";
 
 // 스크롤 시 탭 줄 축소 (사용자 요청, 사파리 주소창처럼): 맨 위에서 MINI_TOP(px) 넘게 내려온 뒤
 // 한 방향으로 MINI_STEP(px) 넘게 스크롤하면 접거나(아래로) 편다(위로). 파일을 열거나 탭을 바꾼 직후 MINI_HOLD(ms)는
@@ -154,3 +159,23 @@ export const KB_LANE_MS = 300;
 export const KB_PILL_DOT = 1;
 // 그 알약이 좁아지며 돌진해 사라지는 시간 (보관함 버튼은 160ms)
 export const KB_DASH_MS = 300;
+
+// 알약 유리 밝기 곡선(applyLift). 라이트: 밝기 LIFT_KEEP_LIGHT 이상은 그대로, 검정은 LIFT_BLACK 까지 끌어올린다.
+// 다크: 밝기 LIFT_KEEP_DARK 이하는 그대로, 흰색은 LIFT_WHITE 까지 끌어내린다 (0 = 검정, 1 = 흰색)
+export const LIFT_KEEP_LIGHT = 0.75;
+export const LIFT_BLACK = 0.6;
+export const LIFT_KEEP_DARK = 0.25;
+export const LIFT_WHITE = 0.45;
+
+// 플러그인이 기대는 Obsidian 화면 요소 (checkHostDom). Obsidian 이 업데이트로 이름을 바꾸면 기능이 소리 없이 빠지므로,
+// 화면 배치가 준비된 뒤 하나라도 없으면 콘솔에 남긴다 (검토 지적)
+export const HOST_DOM = [
+  ".workspace-split.mod-root",
+  ".workspace-tabs .workspace-tab-header-container",
+  ".workspace-tab-header-container-inner",
+  ".workspace-ribbon",
+  ".workspace-leaf-content .view-header .view-actions",
+];
+
+// 컴팩트 모드에서 호버 유리·기호가 커서 쪽으로 끌리는 거리 배율 (사용자 요청: 덜 움직이게)
+export const MAGNET_COMPACT = 0.6;
