@@ -467,6 +467,22 @@ export const menusMethods = {
     });
     if (at) {
       menu.showAtPosition({ x: at.x, y: at.y }, sel.ownerDocument);
+      // 컴팩트 모드의 드롭다운 메뉴도 목록이 커서를 따라 굴러가지 않게 한다 (morphMenu 와 같은 처리. 사용자 지적: 언어 고르기처럼 긴 목록)
+      const dom = els(sel.ownerDocument.querySelectorAll<HTMLElement>("body > .menu:not(.lg-menu-ghost)")).pop();
+      // 대신 휠로 스크롤된다 (CSS .lg-dd-menu: 목록이 넘치면 메뉴 안에서 스크롤)
+      if (dom) {
+        dom.classList.add("lg-dd-menu", "lg-bottom-auto");
+        // 길어도 누른 자리에서 아래로만 연다(누른 자리 ~ 창 아래 8px, 넘치면 그 높이로 자른다). Obsidian 은 창에 맞추려고 위로 끌어올려
+        // 창 위아래를 다 차지했다 (사용자 지적). 아래 자리가 너무 좁고(120px 미만) 위가 더 넓을 때만 위로 연다 (morphMenu 와 같은 기준)
+        const below = win.innerHeight - 8 - at.y;
+        const above = at.y - 8;
+        const up = below < 120 && above > below;
+        const room = up ? above : below;
+        if (dom.offsetHeight > room) dom.style.maxHeight = `${room}px`;
+        dom.style.top = `${up ? at.y - dom.offsetHeight : at.y}px`;
+      }
+      const inner = dom && dom.querySelector<HTMLElement>(".menu-scroll");
+      if (inner) inner.addEventListener("mousemove", (e) => e.stopPropagation(), { capture: true });
       return;
     }
     const b = sel.getBoundingClientRect();

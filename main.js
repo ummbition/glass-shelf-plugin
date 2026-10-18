@@ -5185,6 +5185,18 @@ var menusMethods = {
     });
     if (at) {
       menu.showAtPosition({ x: at.x, y: at.y }, sel.ownerDocument);
+      const dom = els(sel.ownerDocument.querySelectorAll("body > .menu:not(.lg-menu-ghost)")).pop();
+      if (dom) {
+        dom.classList.add("lg-dd-menu", "lg-bottom-auto");
+        const below = win.innerHeight - 8 - at.y;
+        const above = at.y - 8;
+        const up = below < 120 && above > below;
+        const room = up ? above : below;
+        if (dom.offsetHeight > room) dom.style.maxHeight = `${room}px`;
+        dom.style.top = `${up ? at.y - dom.offsetHeight : at.y}px`;
+      }
+      const inner = dom && dom.querySelector(".menu-scroll");
+      if (inner) inner.addEventListener("mousemove", (e) => e.stopPropagation(), { capture: true });
       return;
     }
     const b = sel.getBoundingClientRect();

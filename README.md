@@ -61,10 +61,6 @@ The left GIF shows the lens sliding between panel tabs, and the search field wid
   <img src="images/task-checkbox.gif" alt="Task checkbox">
 </p>
 
-### Core features and plugin integration
-- Bases: toolbar buttons become glass pills and circles, and menus grow out of their buttons. The Kanban view groups cards into one gray block, and the Cards view uses flat cards with a thin border.
-- Kanban: restyled to match Glass Shelf
-
 ## What moves where
 
 With the plugin on, a few buttons move. They work the same; only their place changes.
